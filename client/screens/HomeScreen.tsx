@@ -1,28 +1,49 @@
-import { FlatList } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useHeaderHeight } from "@react-navigation/elements";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-
+import React, { useState } from "react";
+import { View, StyleSheet } from "react-native";
+import ChatListScreen from "@/screens/ChatListScreen";
+import ChatScreen from "@/screens/ChatScreen";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing } from "@/constants/theme";
+
+interface SelectedChat {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  isOnline?: boolean;
+}
 
 export default function HomeScreen() {
-  const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
-  const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
+  const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
+
+  const handleChatSelect = (chatId: string, chatName: string, avatarUrl?: string, isOnline?: boolean) => {
+    setSelectedChat({ id: chatId, name: chatName, avatarUrl, isOnline });
+  };
+
+  const handleBack = () => {
+    setSelectedChat(null);
+  };
+
+  if (selectedChat) {
+    return (
+      <ChatScreen
+        chatId={selectedChat.id}
+        chatName={selectedChat.name}
+        avatarUrl={selectedChat.avatarUrl}
+        isOnline={selectedChat.isOnline}
+        onBack={handleBack}
+      />
+    );
+  }
 
   return (
-    <FlatList
-      style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
-      contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.xl,
-        paddingBottom: tabBarHeight + Spacing.xl,
-        paddingHorizontal: Spacing.lg,
-      }}
-      scrollIndicatorInsets={{ bottom: insets.bottom }}
-      data={[]}
-      renderItem={() => null}
-    />
+    <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+      <ChatListScreen onChatSelect={handleChatSelect} />
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+});
