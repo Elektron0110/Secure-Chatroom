@@ -1,9 +1,8 @@
 entrypoint = "README.md"
-modules = ["nodejs-22", "python-3.11"]
+modules = ["nodejs-22"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["SDL2", "SDL2_image", "SDL2_mixer", "SDL2_ttf", "cargo", "libcxx", "libiconv", "libxcrypt", "mtdev", "openssl", "pkg-config", "rustc"]
 
 [deployment]
 deploymentTarget = "cloudrun"
