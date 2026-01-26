@@ -62,6 +62,14 @@ export default function ChatListScreen({ onChatSelect }: ChatListScreenProps) {
 
   const { data: searchResults = [], isLoading: isSearching } = useQuery<User[]>({
     queryKey: ["/api/users/search", searchQuery],
+    queryFn: async () => {
+      const baseUrl = (await import("@/lib/query-client")).getApiUrl();
+      const url = new URL("/api/users/search", baseUrl);
+      url.searchParams.set("q", searchQuery);
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to search users");
+      return res.json();
+    },
     enabled: searchQuery.length >= 2,
   });
 

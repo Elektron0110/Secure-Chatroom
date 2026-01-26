@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, Pressable, Image } from "react-native";
+import React, { useState } from "react";
+import { View, StyleSheet, Pressable, Image, Modal, Alert, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -21,18 +21,46 @@ export default function ProfileScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { user, logout } = useAuth();
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalContent, setModalContent] = useState({ title: "", message: "" });
 
   const handleLogout = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     logout();
   };
 
+  const showModal = (title: string, message: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setModalContent({ title, message });
+    setModalVisible(true);
+  };
+
   const menuItems = [
-    { icon: "bell", label: "Notifications", onPress: () => {} },
-    { icon: "lock", label: "Privacy", onPress: () => {} },
-    { icon: "moon", label: "Appearance", onPress: () => {} },
-    { icon: "help-circle", label: "Help", onPress: () => {} },
-    { icon: "info", label: "About", onPress: () => {} },
+    { 
+      icon: "bell", 
+      label: "Notifications", 
+      onPress: () => showModal("Notifications", "Notification settings will be available in a future update.") 
+    },
+    { 
+      icon: "lock", 
+      label: "Privacy", 
+      onPress: () => showModal("Privacy", "Privacy settings will be available in a future update.") 
+    },
+    { 
+      icon: "moon", 
+      label: "Appearance", 
+      onPress: () => showModal("Appearance", "Theme customization will be available in a future update.") 
+    },
+    { 
+      icon: "help-circle", 
+      label: "Help", 
+      onPress: () => showModal("Help", "If you need assistance, please contact support@chatapp.com") 
+    },
+    { 
+      icon: "info", 
+      label: "About", 
+      onPress: () => showModal("About", "SecureChat v1.0.0\nA secure messaging application.") 
+    },
   ];
 
   return (
@@ -84,6 +112,33 @@ export default function ProfileScreen() {
       <ThemedText style={[styles.version, { color: theme.textSecondary }]}>
         Version 1.0.0
       </ThemedText>
+
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <Pressable 
+          style={styles.modalOverlay}
+          onPress={() => setModalVisible(false)}
+        >
+          <View style={[styles.modalContent, { backgroundColor: theme.backgroundRoot }]}>
+            <ThemedText type="h4" style={styles.modalTitle}>
+              {modalContent.title}
+            </ThemedText>
+            <ThemedText style={[styles.modalMessage, { color: theme.textSecondary }]}>
+              {modalContent.message}
+            </ThemedText>
+            <Button
+              onPress={() => setModalVisible(false)}
+              style={{ marginTop: Spacing.lg }}
+            >
+              OK
+            </Button>
+          </View>
+        </Pressable>
+      </Modal>
     </KeyboardAwareScrollViewCompat>
   );
 }
@@ -135,5 +190,26 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: Spacing["2xl"],
     fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing["2xl"],
+  },
+  modalContent: {
+    width: "100%",
+    borderRadius: BorderRadius.lg,
+    padding: Spacing["2xl"],
+    alignItems: "center",
+  },
+  modalTitle: {
+    textAlign: "center",
+    marginBottom: Spacing.sm,
+  },
+  modalMessage: {
+    textAlign: "center",
+    lineHeight: 22,
   },
 });
