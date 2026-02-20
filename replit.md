@@ -1,6 +1,6 @@
 # Messenger App
 
-A cross-platform messenger application built with React Native (Expo) and Express.js backend.
+A cross-platform messenger application built with React Native (Expo) frontend and Python (Flask) backend.
 
 ## Overview
 
@@ -22,10 +22,10 @@ This is a real-time messaging application with:
 - Expo Haptics for haptic feedback
 
 ### Backend
-- Express.js
-- PostgreSQL with Drizzle ORM
-- WebSocket for real-time updates
-- Session-based authentication
+- Python 3.11 with Flask
+- PostgreSQL with psycopg2
+- Flask-Sock for WebSocket support
+- Session-based authentication (in-memory token store)
 
 ## Project Structure
 
@@ -68,15 +68,16 @@ client/
     └── RegisterScreen.tsx  # Registration form
 
 server/
-├── db.ts                   # Database connection
-├── index.ts                # Express server setup
-├── routes.ts               # API routes
-├── storage.ts              # Database storage layer
+├── app.py                  # Python Flask backend (all routes, DB, WebSocket)
+├── index.ts                # Launcher that spawns Python server
+├── routes.ts               # Legacy TypeScript routes (unused, reference only)
+├── storage.ts              # Legacy TypeScript storage (unused, reference only)
+├── db.ts                   # Legacy TypeScript DB config (unused, reference only)
 └── templates/
     └── landing-page.html   # QR code landing page
 
 shared/
-└── schema.ts               # Database schema and types
+└── schema.ts               # Database schema types (used by frontend)
 ```
 
 ## API Endpoints
@@ -98,52 +99,59 @@ shared/
 - `POST /api/chats/:chatId/read` - Mark messages as read
 
 ### Users
-- `GET /api/users/search` - Search users
+- `GET /api/users/search?q=query` - Search users
 
 ## Database Schema
 
 ### Users
 - id (UUID)
 - username (unique)
-- password (hashed)
-- displayName
-- avatarUrl
-- isOnline
-- lastSeen
+- password (hashed with SHA-256)
+- display_name
+- avatar_url
+- is_online
+- last_seen
 
 ### Chats
 - id (UUID)
 - name (optional, for group chats)
-- isGroup
-- avatarUrl
-- timestamps
+- is_group
+- avatar_url
+- created_at, updated_at
 
 ### Chat Participants
 - id (UUID)
-- chatId (FK)
-- userId (FK)
-- joinedAt
+- chat_id (FK)
+- user_id (FK)
+- joined_at
 
 ### Messages
 - id (UUID)
-- chatId (FK)
-- senderId (FK)
+- chat_id (FK)
+- sender_id (FK)
 - content
-- encryptedContent
-- isRead
-- createdAt
+- encrypted_content
+- is_read
+- created_at
 
 ## Running the App
 
 ### Development
-1. Backend runs on port 5000
+1. Python Flask backend runs on port 5000 (via `server/app.py`)
 2. Expo dev server runs on port 8081
 3. Scan QR code with Expo Go to test on device
 
 ### Commands
-- `npm run server:dev` - Start backend
+- `npm run server:dev` - Start Python backend (launches via index.ts wrapper)
 - `npm run expo:dev` - Start Expo dev server
-- `npm run db:push` - Push database schema
+
+## Recent Changes
+- 2026-02-20: Converted backend from TypeScript/Express.js to Python/Flask
+  - All API routes ported to Flask
+  - WebSocket support via flask-sock
+  - Direct psycopg2 queries (no ORM)
+  - Database tables created automatically on startup
+  - Legacy TS files kept for reference
 
 ## Features
 
