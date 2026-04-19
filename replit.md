@@ -4,7 +4,7 @@ A cross-platform messenger application built with React Native (Expo) frontend a
 
 ## Overview
 
-This is a real-time messaging application with:
+A real-time messaging application with:
 - User authentication (login/registration)
 - Private chats between users
 - Real-time messaging with WebSocket support
@@ -39,6 +39,7 @@ client/
 │   ├── ChatHeader.tsx      # Chat screen header
 │   ├── ChatListItem.tsx    # Chat list item
 │   ├── EmptyState.tsx      # Empty state component
+│   ├── ErrorBoundary.tsx   # App crash boundary
 │   ├── HeaderTitle.tsx     # App header with logo
 │   ├── LoadingState.tsx    # Loading indicator
 │   ├── MessageBubble.tsx   # Message bubble
@@ -64,20 +65,15 @@ client/
     ├── ChatScreen.tsx      # Chat conversation
     ├── HomeScreen.tsx      # Home wrapper
     ├── LoginScreen.tsx     # Login form
+    ├── ModalScreen.tsx     # Info modals (profile settings)
     ├── ProfileScreen.tsx   # User profile
     └── RegisterScreen.tsx  # Registration form
 
 server/
 ├── app.py                  # Python Flask backend (all routes, DB, WebSocket)
-├── index.ts                # Launcher that spawns Python server
-├── routes.ts               # Legacy TypeScript routes (unused, reference only)
-├── storage.ts              # Legacy TypeScript storage (unused, reference only)
-├── db.ts                   # Legacy TypeScript DB config (unused, reference only)
+├── index.ts                # Launcher that spawns Python server as child process
 └── templates/
     └── landing-page.html   # QR code landing page
-
-shared/
-└── schema.ts               # Database schema types (used by frontend)
 ```
 
 ## API Endpoints
@@ -104,7 +100,7 @@ shared/
 ## Database Schema
 
 ### Users
-- id (UUID)
+- id (UUID, primary key)
 - username (unique)
 - password (hashed with SHA-256)
 - display_name
@@ -113,22 +109,22 @@ shared/
 - last_seen
 
 ### Chats
-- id (UUID)
+- id (UUID, primary key)
 - name (optional, for group chats)
 - is_group
 - avatar_url
 - created_at, updated_at
 
 ### Chat Participants
-- id (UUID)
-- chat_id (FK)
-- user_id (FK)
+- id (UUID, primary key)
+- chat_id (FK → chats)
+- user_id (FK → users)
 - joined_at
 
 ### Messages
-- id (UUID)
-- chat_id (FK)
-- sender_id (FK)
+- id (UUID, primary key)
+- chat_id (FK → chats)
+- sender_id (FK → users)
 - content
 - encrypted_content
 - is_read
@@ -137,28 +133,29 @@ shared/
 ## Running the App
 
 ### Development
-1. Python Flask backend runs on port 5000 (via `server/app.py`)
+1. Python Flask backend runs on port 5000 (`server/app.py`)
 2. Expo dev server runs on port 8081
 3. Scan QR code with Expo Go to test on device
 
 ### Commands
-- `npm run server:dev` - Start Python backend (launches via index.ts wrapper)
+- `npm run server:dev` - Start Python backend (via index.ts subprocess launcher)
 - `npm run expo:dev` - Start Expo dev server
 
-## Recent Changes
-- 2026-02-20: Converted backend from TypeScript/Express.js to Python/Flask
-  - All API routes ported to Flask
-  - WebSocket support via flask-sock
-  - Direct psycopg2 queries (no ORM)
-  - Database tables created automatically on startup
-  - Legacy TS files kept for reference
+## Architecture Notes
+
+- The workflow runs `npm run server:dev` → `tsx server/index.ts` → spawns `python server/app.py`
+- Auth uses an in-memory token store (`sessions = {}` dict in app.py)
+- WebSocket clients tracked in `ws_clients = {}` dict in app.py
+- Database tables are created automatically on startup via `init_db()` in app.py
+- Password hashing: SHA-256
+- Message encryption: XOR + Base64
 
 ## Features
 
 ### Implemented
 - User registration and login
 - Chat list with last message preview
-- Real-time messaging
+- Real-time messaging via WebSocket
 - Message encryption (XOR + Base64)
 - Online/offline status
 - Unread message badges
@@ -167,6 +164,7 @@ shared/
 - Pull-to-refresh
 - Haptic feedback
 - Dark mode support
+- Profile settings modals (Notifications, Privacy, Appearance, Help, About)
 
 ### Design
 - Messenger-style green theme (#128C7E)
