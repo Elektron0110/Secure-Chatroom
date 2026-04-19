@@ -1,174 +1,121 @@
-# Messenger App
+# Messenger — веб-мессенджер на Python/Flask
 
-A cross-platform messenger application built with React Native (Expo) frontend and Python (Flask) backend.
+## Описание
 
-## Overview
+Веб-приложение для обмена сообщениями в реальном времени. Реализовано на Python (Flask) с интерактивным веб-интерфейсом на чистом HTML/CSS/JavaScript. Поддерживает WebSocket для мгновенной доставки сообщений.
 
-A real-time messaging application with:
-- User authentication (login/registration)
-- Private chats between users
-- Real-time messaging with WebSocket support
-- Message encryption
-- Online/offline status indicators
-- Modern UI with liquid glass effects
+## Технологический стек
 
-## Tech Stack
+- **Backend:** Python 3.11, Flask 3, flask-sock (WebSocket), psycopg2
+- **Frontend:** HTML5, CSS3, Vanilla JavaScript (без фреймворков)
+- **База данных:** PostgreSQL (Replit Database)
+- **Авторизация:** токен-сессии в памяти (Bearer token + cookie)
 
-### Frontend
-- React Native with Expo
-- React Navigation for routing
-- TanStack Query for data fetching
-- React Native Reanimated for animations
-- Expo Haptics for haptic feedback
-
-### Backend
-- Python 3.11 with Flask
-- PostgreSQL with psycopg2
-- Flask-Sock for WebSocket support
-- Session-based authentication (in-memory token store)
-
-## Project Structure
+## Структура проекта
 
 ```
-client/
-├── App.tsx                 # Main app component with providers
-├── components/             # Reusable UI components
-│   ├── Avatar.tsx          # User avatar with online status
-│   ├── Button.tsx          # Animated button
-│   ├── Card.tsx            # Card component
-│   ├── ChatHeader.tsx      # Chat screen header
-│   ├── ChatListItem.tsx    # Chat list item
-│   ├── EmptyState.tsx      # Empty state component
-│   ├── ErrorBoundary.tsx   # App crash boundary
-│   ├── HeaderTitle.tsx     # App header with logo
-│   ├── LoadingState.tsx    # Loading indicator
-│   ├── MessageBubble.tsx   # Message bubble
-│   └── MessageInput.tsx    # Message input field
-├── constants/
-│   └── theme.ts            # Colors, spacing, typography
-├── hooks/
-│   ├── useColorScheme.ts   # Color scheme hook
-│   ├── useScreenOptions.ts # Navigation screen options
-│   └── useTheme.ts         # Theme hook
-├── lib/
-│   ├── auth-context.tsx    # Authentication context
-│   ├── encryption.ts       # Message encryption
-│   └── query-client.ts     # API client
-├── navigation/
-│   ├── HomeStackNavigator.tsx
-│   ├── MainTabNavigator.tsx
-│   ├── ProfileStackNavigator.tsx
-│   └── RootStackNavigator.tsx
-└── screens/
-    ├── AuthScreen.tsx      # Auth wrapper
-    ├── ChatListScreen.tsx  # Chat list
-    ├── ChatScreen.tsx      # Chat conversation
-    ├── HomeScreen.tsx      # Home wrapper
-    ├── LoginScreen.tsx     # Login form
-    ├── ModalScreen.tsx     # Info modals (profile settings)
-    ├── ProfileScreen.tsx   # User profile
-    └── RegisterScreen.tsx  # Registration form
-
 server/
-├── app.py                  # Python Flask backend (all routes, DB, WebSocket)
-├── index.ts                # Launcher that spawns Python server as child process
+├── app.py              # Весь бэкенд: Flask API, WebSocket, работа с БД
+├── index.ts            # Вспомогательный запускатор для воркфлоу Replit
 └── templates/
-    └── landing-page.html   # QR code landing page
+    └── index.html      # Полноценное SPA-приложение (HTML + CSS + JS)
+pyproject.toml          # Python-зависимости
+replit.md               # Этот файл
+ARCHITECTURE.md         # Подробная документация архитектуры
 ```
 
-## API Endpoints
+## API-эндпоинты
 
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
-- `POST /api/auth/logout` - Logout user
-- `GET /api/auth/me` - Get current user
+### Страницы
+- `GET /` — веб-приложение (SPA)
+- `GET /status` — проверка состояния сервера
 
-### Chats
-- `GET /api/chats` - Get user's chats
-- `POST /api/chats` - Create new chat
-- `DELETE /api/chats/:chatId` - Delete chat
+### Аутентификация
+- `POST /api/auth/register` — регистрация
+- `POST /api/auth/login` — вход
+- `POST /api/auth/logout` — выход
+- `GET /api/auth/me` — данные текущего пользователя
 
-### Messages
-- `GET /api/chats/:chatId/messages` - Get chat messages
-- `POST /api/chats/:chatId/messages` - Send message
-- `POST /api/chats/:chatId/read` - Mark messages as read
+### Чаты
+- `GET /api/chats` — список чатов пользователя
+- `POST /api/chats` — создать чат
+- `DELETE /api/chats/<id>` — удалить чат
 
-### Users
-- `GET /api/users/search?q=query` - Search users
+### Сообщения
+- `GET /api/chats/<id>/messages` — сообщения чата
+- `POST /api/chats/<id>/messages` — отправить сообщение
+- `POST /api/chats/<id>/read` — отметить как прочитанные
 
-## Database Schema
+### Пользователи
+- `GET /api/users/search?q=...` — поиск пользователей
 
-### Users
-- id (UUID, primary key)
-- username (unique)
-- password (hashed with SHA-256)
-- display_name
-- avatar_url
-- is_online
-- last_seen
+### WebSocket
+- `GET /ws?token=<token>` — WebSocket-соединение для реального времени
 
-### Chats
-- id (UUID, primary key)
-- name (optional, for group chats)
-- is_group
-- avatar_url
-- created_at, updated_at
+## Схема базы данных
 
-### Chat Participants
-- id (UUID, primary key)
-- chat_id (FK → chats)
-- user_id (FK → users)
-- joined_at
+### users
+| Поле | Тип | Описание |
+|---|---|---|
+| id | VARCHAR (UUID) | Первичный ключ |
+| username | TEXT UNIQUE | Логин |
+| password | TEXT | SHA-256 хеш |
+| display_name | TEXT | Отображаемое имя |
+| avatar_url | TEXT | URL аватара |
+| is_online | BOOLEAN | Онлайн-статус |
+| last_seen | TIMESTAMP | Последний визит |
 
-### Messages
-- id (UUID, primary key)
-- chat_id (FK → chats)
-- sender_id (FK → users)
-- content
-- encrypted_content
-- is_read
-- created_at
+### chats
+| Поле | Тип | Описание |
+|---|---|---|
+| id | VARCHAR (UUID) | Первичный ключ |
+| name | TEXT | Название (для групп) |
+| is_group | BOOLEAN | Групповой чат |
+| updated_at | TIMESTAMP | Время последнего сообщения |
 
-## Running the App
+### chat_participants
+- Связь many-to-many между users и chats
+- Каскадное удаление при удалении чата
 
-### Development
-1. Python Flask backend runs on port 5000 (`server/app.py`)
-2. Expo dev server runs on port 8081
-3. Scan QR code with Expo Go to test on device
+### messages
+| Поле | Тип | Описание |
+|---|---|---|
+| content | TEXT | Текст сообщения |
+| sender_id | VARCHAR | Автор сообщения |
+| is_read | BOOLEAN | Прочитано ли |
 
-### Commands
-- `npm run server:dev` - Start Python backend (via index.ts subprocess launcher)
-- `npm run expo:dev` - Start Expo dev server
+## Запуск
 
-## Architecture Notes
+### Разработка
 
-- The workflow runs `npm run server:dev` → `tsx server/index.ts` → spawns `python server/app.py`
-- Auth uses an in-memory token store (`sessions = {}` dict in app.py)
-- WebSocket clients tracked in `ws_clients = {}` dict in app.py
-- Database tables are created automatically on startup via `init_db()` in app.py
-- Password hashing: SHA-256
-- Message encryption: XOR + Base64
+Воркфлоу **Start Backend** запускает сервер:
+```
+npm run server:dev → tsx server/index.ts → python server/app.py
+```
+Приложение доступно на порту 5000.
 
-## Features
+### Продакшн (деплой)
+```
+python server/app.py
+```
 
-### Implemented
-- User registration and login
-- Chat list with last message preview
-- Real-time messaging via WebSocket
-- Message encryption (XOR + Base64)
-- Online/offline status
-- Unread message badges
-- Create new chats
-- Delete chats
-- Pull-to-refresh
-- Haptic feedback
-- Dark mode support
-- Profile settings modals (Notifications, Privacy, Appearance, Help, About)
+## Особенности архитектуры
 
-### Design
-- Messenger-style green theme (#128C7E)
-- Frosted glass navigation
-- Smooth animations
-- Responsive layout
-- iOS 26 liquid glass aesthetics
+- Сессии хранятся в памяти (`sessions = {}`) — при перезапуске сервера пользователи выходят из системы
+- WebSocket-клиенты отслеживаются в `ws_clients = {}` в памяти
+- Таблицы БД создаются автоматически при старте через `init_db()`
+- Хеширование паролей: SHA-256
+- Frontend: SPA на чистом JS, без внешних зависимостей
+- Реальное время: WebSocket через flask-sock + резервный polling каждые 3.5с
+
+## Функциональность
+
+- Регистрация и вход пользователей
+- Поиск пользователей для создания чатов
+- Список чатов с превью последнего сообщения
+- Реальное время через WebSocket
+- Индикаторы онлайн-статуса
+- Счётчики непрочитанных сообщений
+- Удаление чатов
+- Светлая / тёмная тема
+- Адаптивный дизайн (мобильный + десктоп)

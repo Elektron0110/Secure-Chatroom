@@ -8,7 +8,7 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, request, jsonify, make_response, send_from_directory, send_file, Response
+from flask import Flask, request, jsonify, make_response, render_template, Response
 from flask_cors import CORS
 from flask_sock import Sock
 
@@ -191,68 +191,14 @@ def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
         ws_clients.pop(uid, None)
 
 
-def get_app_name():
-    try:
-        app_json_path = os.path.join(os.getcwd(), "app.json")
-        with open(app_json_path) as f:
-            data = json.load(f)
-        return data.get("expo", {}).get("name", "App Landing Page")
-    except Exception:
-        return "App Landing Page"
-
-
-def serve_expo_manifest(platform):
-    manifest_path = os.path.join(os.getcwd(), "static-build", platform, "manifest.json")
-    if not os.path.exists(manifest_path):
-        return jsonify({"error": f"Manifest not found for platform: {platform}"}), 404
-    with open(manifest_path) as f:
-        manifest = f.read()
-    resp = make_response(manifest)
-    resp.headers["expo-protocol-version"] = "1"
-    resp.headers["expo-sfv-version"] = "0"
-    resp.headers["content-type"] = "application/json"
-    return resp
-
-
 @app.route("/", methods=["GET"])
-def landing():
-    platform = request.headers.get("expo-platform")
-    if platform and platform in ("ios", "android"):
-        return serve_expo_manifest(platform)
-
-    template_path = os.path.join(os.getcwd(), "server", "templates", "landing-page.html")
-    with open(template_path) as f:
-        template = f.read()
-
-    forwarded_proto = request.headers.get("x-forwarded-proto", request.scheme)
-    forwarded_host = request.headers.get("x-forwarded-host", request.host)
-    base_url = f"{forwarded_proto}://{forwarded_host}"
-    exps_url = forwarded_host
-    app_name = get_app_name()
-
-    html = template.replace("BASE_URL_PLACEHOLDER", base_url)
-    html = html.replace("EXPS_URL_PLACEHOLDER", exps_url)
-    html = html.replace("APP_NAME_PLACEHOLDER", app_name)
-
-    return Response(html, content_type="text/html; charset=utf-8")
+def index():
+    return render_template("index.html")
 
 
-@app.route("/manifest", methods=["GET"])
-def manifest():
-    platform = request.headers.get("expo-platform")
-    if platform and platform in ("ios", "android"):
-        return serve_expo_manifest(platform)
-    return jsonify({"error": "No platform specified"}), 400
-
-
-@app.route("/assets/<path:filename>")
-def serve_assets(filename):
-    return send_from_directory(os.path.join(os.getcwd(), "assets"), filename)
-
-
-@app.route("/static-build/<path:filename>")
-def serve_static_build(filename):
-    return send_from_directory(os.path.join(os.getcwd(), "static-build"), filename)
+@app.route("/status", methods=["GET"])
+def status():
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/auth/register", methods=["POST"])
