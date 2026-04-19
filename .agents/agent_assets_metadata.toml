@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "GZsKOBvXw_VVk_COuYT_s"
+uri = "file://ARCHITECTURE.md"
+type = "text"
+title = "Архитектура Messenger — подробная документация"
