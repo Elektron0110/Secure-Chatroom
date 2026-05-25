@@ -30,16 +30,18 @@ server/app.py  (Python 3.11 + Flask)
 PostgreSQL (Replit Database)
 ```
 
-**Порт:** 5000
+**Порт:** 5000 (externalPort=5000 в .replit)
 
 **Запуск в разработке:**
 ```
 npm run server:dev
   → tsx server/index.ts
-    → python server/app.py
+    → python server/app.py  (PORT=5000)
 ```
 
 `server/index.ts` — тонкая Node.js-обёртка, нужная только для запуска через воркфлоу Replit. Весь код приложения — на Python.
+
+**Документация:** главный файл — [README.md](../README.md), архитектура — этот файл.
 
 ---
 
@@ -476,4 +478,4 @@ ws.onmessage → msg = JSON.parse(event.data)
 
 ---
 
-*Документация актуальна: апрель 2026*
+*Документация актуальна: май 2026*
