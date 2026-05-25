@@ -385,7 +385,7 @@ def login():
                 return jsonify({"error": "Invalid credentials"}), 401
 
             user.is_online = True
-            user.last_seen = datetime.datetime.now(datetime.UTC)()
+            user.last_seen = datetime.datetime.now(datetime.UTC)
             db.commit()
 
             token = generate_token()
@@ -418,7 +418,7 @@ def logout():
         user = db.query(User).filter_by(id=request.user_id).first()
         if user:
             user.is_online = False
-            user.last_seen = datetime.datetime.now(datetime.UTC)()
+            user.last_seen = datetime.datetime.now(datetime.UTC)
             db.commit()
     finally:
         db.close()
@@ -578,7 +578,7 @@ def create_message(chat_id):
 
             chat = db.query(Chat).filter_by(id=chat_id).first()
             if chat:
-                chat.updated_at = datetime.datetime.now(datetime.UTC)()
+                chat.updated_at = datetime.datetime.now(datetime.UTC)
 
             db.commit()
             db.refresh(msg)
