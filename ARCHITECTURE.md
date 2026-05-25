@@ -1,15 +1,16 @@
 # Messenger — Архитектура системы
 
 > Подробная документация всех модулей и принципов работы приложения.
+> Главный файл документации: [README.md](README.md)
 
 ---
 
 ## Содержание
 
 1. [Общая схема](#1-общая-схема)
-2. [Серверная часть (server/app.py)](#2-серверная-часть-serverapppy)
-3. [Фронтенд (server/templates/index.html)](#3-фронтенд-servertemplatesindexhtml)
-4. [База данных](#4-база-данных)
+2. [База данных (SQLAlchemy + SQLite)](#2-база-данных-sqlalchemy--sqlite)
+3. [Серверная часть (server/app.py)](#3-серверная-часть-serverapppy)
+4. [Фронтенд (server/templates/index.html)](#4-фронтенд-servertemplatesindexhtml)
 5. [Аутентификация](#5-аутентификация)
 6. [WebSocket и реальное время](#6-websocket-и-реальное-время)
 7. [Жизненный цикл запроса](#7-жизненный-цикл-запроса)
@@ -23,11 +24,11 @@
          │
          │ HTTP REST API + WebSocket
          ▼
-server/app.py  (Python 3.11 + Flask)
+server/app.py  (Python 3.11 + Flask 3)
          │
-         │ psycopg2
+         │ SQLAlchemy ORM
          ▼
-PostgreSQL (Replit Database)
+SQLite3 (messenger.db — файл в корне проекта)
 ```
 
 **Порт:** 5000 (externalPort=5000 в .replit)
@@ -41,13 +42,140 @@ npm run server:dev
 
 `server/index.ts` — тонкая Node.js-обёртка, нужная только для запуска через воркфлоу Replit. Весь код приложения — на Python.
 
-**Документация:** главный файл — [README.md](../README.md), архитектура — этот файл.
+---
+
+## 2. База данных (SQLAlchemy + SQLite)
+
+### Движок и сессия
+
+```python
+engine = create_engine(
+    "sqlite:///messenger.db",
+    connect_args={"check_same_thread": False},
+)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+```
+
+- `check_same_thread=False` — необходимо для Flask, где каждый запрос обрабатывается в отдельном потоке.
+- `autocommit=False` — транзакции управляются вручную через `db.commit()`.
+
+### Включение внешних ключей в SQLite
+
+SQLite по умолчанию не проверяет внешние ключи. Включается через PRAGMA:
+
+```python
+@event.listens_for(Engine, "connect")
+def enable_foreign_keys(dbapi_conn, _):
+    if isinstance(dbapi_conn, sqlite3.Connection):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+```
+
+Это обеспечивает каскадное удаление: при удалении `Chat` автоматически удаляются все `ChatParticipant` и `Message`.
+
+### Инициализация таблиц
+
+```python
+def init_db():
+    Base.metadata.create_all(engine)
+```
+
+Вызывается один раз при старте. Создаёт все таблицы, если они не существуют.
+
+### Паттерн сессии на запрос
+
+```python
+db = SessionLocal()
+try:
+    # работа с БД
+    db.commit()
+finally:
+    db.close()
+```
+
+Каждый HTTP-маршрут открывает и закрывает сессию через `try/finally`, чтобы гарантировать освобождение ресурсов.
 
 ---
 
-## 2. Серверная часть (server/app.py)
+### ORM-модели
 
-Единственный файл бэкенда. Содержит всё: маршруты HTTP, WebSocket, работу с базой данных, аутентификацию.
+#### `User`
+
+```python
+class User(Base):
+    __tablename__ = "users"
+    id           = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username     = Column(String, nullable=False, unique=True)
+    password     = Column(String, nullable=False)       # SHA-256
+    display_name = Column(String, nullable=False)
+    avatar_url   = Column(String)
+    is_online    = Column(Boolean, default=False)
+    last_seen    = Column(DateTime, default=datetime.utcnow)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+```
+
+#### `Chat`
+
+```python
+class Chat(Base):
+    __tablename__ = "chats"
+    id         = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name       = Column(String)                         # None для личных чатов
+    is_group   = Column(Boolean, default=False)
+    avatar_url = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    participants = relationship("ChatParticipant", back_populates="chat", cascade="all, delete-orphan")
+    messages     = relationship("Message",         back_populates="chat", cascade="all, delete-orphan")
+```
+
+#### `ChatParticipant`
+
+```python
+class ChatParticipant(Base):
+    __tablename__ = "chat_participants"
+    id        = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id   = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    user_id   = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    chat = relationship("Chat", back_populates="participants")
+    user = relationship("User")
+```
+
+#### `Message`
+
+```python
+class Message(Base):
+    __tablename__ = "messages"
+    id                = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id           = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    sender_id         = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content           = Column(Text, nullable=False)
+    encrypted_content = Column(Text)
+    is_read           = Column(Boolean, default=False)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+    chat   = relationship("Chat", back_populates="messages")
+    sender = relationship("User")
+```
+
+### Индексы
+
+```python
+Index("ix_cp_chat_id",    ChatParticipant.chat_id)
+Index("ix_cp_user_id",    ChatParticipant.user_id)
+Index("ix_msg_chat_id",   Message.chat_id)
+Index("ix_msg_sender_id", Message.sender_id)
+```
+
+---
+
+## 3. Серверная часть (server/app.py)
+
+Единственный файл бэкенда. Содержит ORM-модели, маршруты HTTP, WebSocket, аутентификацию.
 
 ### Глобальные объекты
 
@@ -63,33 +191,19 @@ ws_clients = {}         # { user_id: ws } — WebSocket-подключения (
 
 ---
 
-### Функция `init_db()`
+### Вспомогательные функции
 
-Вызывается один раз при старте. Создаёт 4 таблицы и 4 индекса (если не существуют):
+**`hash_password(password)`** — SHA-256, возвращает hex-строку.
 
-```sql
-users, chats, chat_participants, messages
-индексы: по chat_id и user_id в chat_participants, по chat_id и sender_id в messages
-```
+**`generate_token()`** — `secrets.token_hex(32)`, криптографически стойкий токен.
 
----
+**`dt_iso(dt)`** — сериализация `datetime` в ISO-строку.
 
-### Функция `get_db()`
+**`user_dict(u)`** — преобразование ORM-объекта `User` в JSON-словарь с camelCase-ключами.
 
-```python
-def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
-    conn.autocommit = True
-    return conn
-```
+**`message_dict(m)`** — преобразование `Message` (с вложенным `sender`) в JSON-словарь.
 
-Новое соединение создаётся на каждый запрос. `autocommit = True` — каждый INSERT/UPDATE сразу фиксируется, явный `commit()` не нужен.
-
----
-
-### Функция `hash_password(password)`
-
-SHA-256 без соли. Возвращает hex-строку из 64 символов.
+**`chat_dict(chat, current_user_id, db)`** — полная сериализация чата: участники, последнее сообщение, счётчик непрочитанных.
 
 ---
 
@@ -104,7 +218,7 @@ SHA-256 без соли. Возвращает hex-строку из 64 симв�
 
 ---
 
-### Функция `setup_cors()`
+### `setup_cors()`
 
 Разрешает CORS-запросы от:
 - Доменов Replit (`REPLIT_DEV_DOMAIN`, `REPLIT_DOMAINS`)
@@ -112,9 +226,9 @@ SHA-256 без соли. Возвращает hex-строку из 64 симв�
 
 ---
 
-### Функция `broadcast_to_chat(chat_id, message_data, exclude_user_id)`
+### `broadcast_to_chat(chat_id, message_data, exclude_user_id)`
 
-Рассылает JSON всем WebSocket-клиентам, которые являются участниками чата. Если клиент отвалился — удаляет его из `ws_clients`.
+Рассылает JSON всем WebSocket-клиентам в `ws_clients`. Если клиент отвалился — удаляет его из `ws_clients`.
 
 ---
 
@@ -123,44 +237,49 @@ SHA-256 без соли. Возвращает hex-строку из 64 симв�
 | Метод | Путь | Описание |
 |---|---|---|
 | GET | `/` | Отдаёт веб-приложение (index.html) |
-| GET | `/status` | Проверка состояния сервера → `{"status": "ok"}` |
+| GET | `/status` | `{"status": "ok"}` |
 | POST | `/api/auth/register` | Регистрация |
 | POST | `/api/auth/login` | Вход |
 | POST | `/api/auth/logout` | Выход |
 | GET | `/api/auth/me` | Профиль текущего пользователя |
-| GET | `/api/chats` | Список чатов (с участниками, последним сообщением, счётчиком непрочитанных) |
+| GET | `/api/chats` | Список чатов |
 | POST | `/api/chats` | Создать чат |
 | DELETE | `/api/chats/<id>` | Удалить чат |
 | GET | `/api/chats/<id>/messages` | Сообщения чата (последние 50) |
 | POST | `/api/chats/<id>/messages` | Отправить сообщение |
-| POST | `/api/chats/<id>/read` | Отметить сообщения прочитанными |
-| GET | `/api/users/search?q=...` | Поиск пользователей (ILIKE) |
+| POST | `/api/chats/<id>/read` | Отметить прочитанными |
+| GET | `/api/users/search?q=...` | Поиск пользователей |
 
 ---
 
-### Детали маршрутов
+### Детали ключевых маршрутов
 
 **`GET /api/chats`**
 
-Для каждого чата пользователя:
-1. Выборка участников с их данными
-2. JOIN с последним сообщением
-3. Подсчёт непрочитанных сообщений
-4. Сортировка по `updated_at DESC`
+```python
+chat_ids = [r.chat_id for r in db.query(ChatParticipant.chat_id).filter_by(user_id=user_id)]
+chats = db.query(Chat).filter(Chat.id.in_(chat_ids)).order_by(Chat.updated_at.desc()).all()
+return [chat_dict(c, user_id, db) for c in chats]
+```
 
 **`POST /api/chats/<id>/messages`**
 
-1. Вставка сообщения в БД
-2. Обновление `updated_at` чата
-3. WebSocket-рассылка другим участникам
+```python
+msg = Message(chat_id=chat_id, sender_id=user_id, content=content)
+db.add(msg)
+chat.updated_at = datetime.utcnow()
+db.commit()
+broadcast_to_chat(chat_id, message_dict(msg), exclude_user_id=user_id)
+```
 
 **`GET /api/users/search`**
 
-```sql
-SELECT ... FROM users
-WHERE (LOWER(username) LIKE %q% OR LOWER(display_name) LIKE %q%)
-AND id != <текущий_пользователь>
-LIMIT 20
+```python
+pattern = f"%{query.lower()}%"
+users = db.query(User).filter(
+    User.id != user_id,
+    func.lower(User.username).like(pattern) | func.lower(User.display_name).like(pattern)
+).limit(20).all()
 ```
 
 **`WebSocket /ws`**
@@ -168,17 +287,18 @@ LIMIT 20
 ```python
 @sock.route("/ws")
 def websocket_handler(ws):
-    token = request.args.get("token")
-    # проверка токена
+    user_id = sessions[token]
     ws_clients[user_id] = ws
+    user.is_online = True
     while True:
         data = ws.receive()  # блокирующее ожидание
-        # обработка входящих событий (typing, ping и т.д.)
+        # обработка ping и других событий
+    # при отключении: is_online = False, last_seen = now
 ```
 
 ---
 
-## 3. Фронтенд (server/templates/index.html)
+## 4. Фронтенд (server/templates/index.html)
 
 Одностраничное приложение (SPA) на чистом HTML5 + CSS3 + Vanilla JavaScript. Никаких npm-пакетов, никаких фреймворков.
 
@@ -206,8 +326,6 @@ body
 └── #toast           — уведомления
 ```
 
----
-
 ### Состояние (JavaScript `state`)
 
 ```javascript
@@ -223,49 +341,9 @@ const state = {
 };
 ```
 
----
-
 ### Функция `api(method, path, body)`
 
-Универсальная обёртка над `fetch()`:
-
-```javascript
-async function api(method, path, body) {
-  const opts = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${state.token}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  };
-  const res = await fetch(path, opts);
-  if (!res.ok) throw new Error(data.error);
-  return res.json();
-}
-```
-
----
-
-### Жизненный цикл сессии (фронтенд)
-
-```
-init()
-  ├── checkAuth() — читает токен из localStorage
-  │     ├── Успех → showApp()
-  │     └── Ошибка → showAuth()
-  │
-showApp():
-  ├── renderChatList()
-  ├── connectWs()   — WebSocket-соединение
-  └── startPolling() — резервный polling каждые 3.5/6 сек
-```
-
-Токен и данные пользователя сохраняются в `localStorage`:
-- `localStorage['token']` — токен
-- `localStorage['user']` — JSON пользователя
-
----
+Универсальная обёртка над `fetch()` с Bearer-токеном в заголовке.
 
 ### WebSocket (клиент)
 
@@ -273,118 +351,21 @@ showApp():
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}/ws?token=${state.token}`);
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    // добавляем в открытый чат или обновляем список
-  };
-  ws.onclose = () => {
-    setTimeout(connectWs, 5000); // переподключение
-  };
+  ws.onmessage = (e) => { /* обновить чат или список */ };
+  ws.onclose = () => { setTimeout(connectWs, 5000); }; // переподключение
 }
 ```
-
-При получении сообщения:
-1. Если чат открыт — добавляем пузырёк в DOM
-2. Обновляем список чатов
-
----
-
-### Отправка сообщения
-
-```javascript
-async function sendMessage() {
-  const content = input.value.trim();
-  await api('POST', `/api/chats/${chatId}/messages`, { content });
-  // ответ сервера содержит полные данные сообщения
-  appendMessage(msg, true);
-  loadChats(); // обновить список чатов
-}
-```
-
----
 
 ### Адаптивный дизайн
 
 | Экран | Поведение |
 |---|---|
 | Десктоп (> 680px) | Боковая панель (360px) + область чата |
-| Мобильный (≤ 680px) | Полноэкранный список ИЛИ полноэкранный чат, переключение |
-
----
+| Мобильный (≤ 680px) | Полноэкранный список ИЛИ полноэкранный чат |
 
 ### Темы оформления
 
-Управляется через `data-theme` атрибут на `<html>`:
-
-```javascript
-function toggleTheme() {
-  html.dataset.theme = isDark ? 'light' : 'dark';
-  localStorage.setItem('theme', html.dataset.theme);
-}
-```
-
-CSS-переменные переключаются автоматически через `[data-theme="dark"] { ... }`.
-
----
-
-## 4. База данных
-
-### Таблица `users`
-
-```sql
-CREATE TABLE users (
-    id           VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    username     TEXT NOT NULL UNIQUE,
-    password     TEXT NOT NULL,          -- SHA-256 хеш
-    display_name TEXT NOT NULL,
-    avatar_url   TEXT,
-    is_online    BOOLEAN DEFAULT FALSE,
-    last_seen    TIMESTAMP DEFAULT NOW(),
-    created_at   TIMESTAMP DEFAULT NOW()
-);
-```
-
-### Таблица `chats`
-
-```sql
-CREATE TABLE chats (
-    id         VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    name       TEXT,                     -- null для личных чатов
-    is_group   BOOLEAN DEFAULT FALSE,
-    avatar_url TEXT,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()   -- обновляется при новом сообщении
-);
-```
-
-### Таблица `chat_participants`
-
-```sql
-CREATE TABLE chat_participants (
-    id        VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    chat_id   VARCHAR NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-    user_id   VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    joined_at TIMESTAMP DEFAULT NOW()
-);
--- индексы по chat_id и user_id
-```
-
-### Таблица `messages`
-
-```sql
-CREATE TABLE messages (
-    id                VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    chat_id           VARCHAR NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-    sender_id         VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    content           TEXT NOT NULL,
-    encrypted_content TEXT,
-    is_read           BOOLEAN DEFAULT FALSE,
-    created_at        TIMESTAMP DEFAULT NOW()
-);
--- индексы по chat_id и sender_id
-```
-
-**Каскадное удаление:** при удалении чата автоматически удаляются `chat_participants` и `messages`.
+Управляется через `data-theme` атрибут на `<html>`. CSS-переменные переключаются через `[data-theme="dark"] { ... }`. Выбор сохраняется в `localStorage`.
 
 ---
 
@@ -422,8 +403,9 @@ sessions[token] = user_id
 POST /api/chats/<id>/messages
   │
   ▼
-INSERT INTO messages
-UPDATE chats SET updated_at = NOW()
+db.add(Message(...))
+chat.updated_at = datetime.utcnow()
+db.commit()
   │
   ▼
 broadcast_to_chat(chat_id, message_data)

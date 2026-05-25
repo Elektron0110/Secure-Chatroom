@@ -8,7 +8,7 @@
 |---|---|
 | Backend | Python 3.11, Flask 3 |
 | WebSocket | flask-sock |
-| База данных | PostgreSQL (psycopg2) |
+| База данных | SQLite3 через SQLAlchemy 2.0 (ORM) |
 | Frontend | HTML5, CSS3, Vanilla JS |
 | Авторизация | Bearer-токен + cookie (в памяти) |
 
@@ -19,8 +19,9 @@ messenger/
 ├── README.md                   # Этот файл — главная документация
 ├── ARCHITECTURE.md             # Подробная архитектура системы
 ├── pyproject.toml              # Python-зависимости
+├── messenger.db                # SQLite база данных (создаётся автоматически)
 ├── server/
-│   ├── app.py                  # Весь бэкенд: API, WebSocket, БД
+│   ├── app.py                  # Весь бэкенд: API, WebSocket, ORM-модели
 │   ├── index.ts                # Node.js-обёртка для запуска через Replit
 │   └── templates/
 │       └── index.html          # SPA-приложение (HTML + CSS + JS)
@@ -31,8 +32,7 @@ messenger/
 ### Требования
 
 - Python 3.11+
-- PostgreSQL (или Replit Database)
-- Переменная окружения `DATABASE_URL`
+- Зависимости из `pyproject.toml`
 
 ### Запуск (разработка)
 
@@ -48,7 +48,8 @@ npm run server:dev
     → python server/app.py  (PORT=5000)
 ```
 
-Приложение доступно на `http://localhost:5000`.
+Приложение доступно на `http://localhost:5000`.  
+База данных `messenger.db` создаётся автоматически в корне проекта при первом запуске.
 
 ## API
 
@@ -81,57 +82,70 @@ npm run server:dev
 
 | Метод | Путь | Описание |
 |---|---|---|
-| GET | `/api/users/search?q=...` | Поиск пользователей (ILIKE) |
+| GET | `/api/users/search?q=...` | Поиск пользователей (LIKE) |
 | GET | `/status` | Статус сервера |
 | WS | `/ws?token=<token>` | WebSocket-соединение реального времени |
 
-## Схема базы данных
+## Схема базы данных (SQLAlchemy ORM)
 
-### Таблица `users`
+### Модель `User`
 
-| Поле | Тип | Описание |
+| Поле | Тип SQLAlchemy | Описание |
 |---|---|---|
-| id | VARCHAR (UUID) | Первичный ключ |
-| username | TEXT UNIQUE | Логин |
-| password | TEXT | SHA-256 хеш |
-| display_name | TEXT | Отображаемое имя |
-| avatar_url | TEXT | URL аватара |
-| is_online | BOOLEAN | Онлайн-статус |
-| last_seen | TIMESTAMP | Последний визит |
-| created_at | TIMESTAMP | Дата регистрации |
+| id | String (UUID) | Первичный ключ, генерируется в Python |
+| username | String, UNIQUE | Логин |
+| password | String | SHA-256 хеш |
+| display_name | String | Отображаемое имя |
+| avatar_url | String | URL аватара |
+| is_online | Boolean | Онлайн-статус |
+| last_seen | DateTime | Последний визит |
+| created_at | DateTime | Дата регистрации |
 
-### Таблица `chats`
+### Модель `Chat`
 
-| Поле | Тип | Описание |
+| Поле | Тип SQLAlchemy | Описание |
 |---|---|---|
-| id | VARCHAR (UUID) | Первичный ключ |
-| name | TEXT | Название (только для групповых) |
-| is_group | BOOLEAN | Групповой чат |
-| avatar_url | TEXT | URL аватара |
-| created_at | TIMESTAMP | Дата создания |
-| updated_at | TIMESTAMP | Время последнего сообщения |
+| id | String (UUID) | Первичный ключ |
+| name | String | Название (только для групповых) |
+| is_group | Boolean | Групповой чат |
+| avatar_url | String | URL аватара |
+| created_at | DateTime | Дата создания |
+| updated_at | DateTime | Время последнего сообщения |
 
-### Таблица `chat_participants`
+### Модель `ChatParticipant`
 
-Связь many-to-many между `users` и `chats`. Каскадное удаление при удалении чата.
+Связь many-to-many между `User` и `Chat`. Каскадное удаление при удалении чата.
 
-| Поле | Тип | Описание |
+| Поле | Тип SQLAlchemy | Описание |
 |---|---|---|
-| id | VARCHAR (UUID) | Первичный ключ |
-| chat_id | VARCHAR | FK → chats.id (CASCADE) |
-| user_id | VARCHAR | FK → users.id (CASCADE) |
-| joined_at | TIMESTAMP | Дата вступления |
+| id | String (UUID) | Первичный ключ |
+| chat_id | String, FK → Chat.id | CASCADE |
+| user_id | String, FK → User.id | CASCADE |
+| joined_at | DateTime | Дата вступления |
 
-### Таблица `messages`
+### Модель `Message`
 
-| Поле | Тип | Описание |
+| Поле | Тип SQLAlchemy | Описание |
 |---|---|---|
-| id | VARCHAR (UUID) | Первичный ключ |
-| chat_id | VARCHAR | FK → chats.id (CASCADE) |
-| sender_id | VARCHAR | FK → users.id (CASCADE) |
-| content | TEXT | Текст сообщения |
-| is_read | BOOLEAN | Прочитано ли |
-| created_at | TIMESTAMP | Время отправки |
+| id | String (UUID) | Первичный ключ |
+| chat_id | String, FK → Chat.id | CASCADE |
+| sender_id | String, FK → User.id | CASCADE |
+| content | Text | Текст сообщения |
+| encrypted_content | Text | Зашифрованный текст (опционально) |
+| is_read | Boolean | Прочитано ли |
+| created_at | DateTime | Время отправки |
+
+## Зависимости (`pyproject.toml`)
+
+```toml
+dependencies = [
+    "flask>=3.1.3",
+    "flask-cors>=6.0.2",
+    "flask-sock>=0.7.0",
+    "sqlalchemy>=2.0.0",
+    "simple-websocket>=1.1.0",
+]
+```
 
 ## Возможности
 
@@ -147,12 +161,13 @@ npm run server:dev
 
 ## Архитектурные особенности
 
+- **SQLite + SQLAlchemy ORM** — база данных хранится в файле `messenger.db`. Таблицы создаются автоматически через `Base.metadata.create_all()`. Внешние ключи с CASCADE включены через `PRAGMA foreign_keys=ON`.
+- **Сессия на запрос** — каждый HTTP-запрос открывает и закрывает `SessionLocal()` через `try/finally`.
+- **UUID в Python** — идентификаторы генерируются через `uuid.uuid4()`, а не на стороне БД.
 - **Сессии в памяти** — `sessions = {}` хранит токены. При перезапуске сервера все пользователи выходят из системы.
 - **WebSocket-клиенты в памяти** — `ws_clients = {}`. При перезапуске соединения рвутся, клиент переподключается автоматически.
-- **Таблицы БД** создаются автоматически при старте через `init_db()` (CREATE TABLE IF NOT EXISTS).
-- **Пароли** — SHA-256 без соли. Достаточно для прототипа, для продакшна рекомендуется bcrypt.
-- **Одно соединение с БД на запрос** — `get_db()` открывает соединение с `autocommit=True`.
+- **Пароли** — SHA-256. Достаточно для прототипа; для продакшна рекомендуется bcrypt.
 
 ## Подробная документация
 
-Смотрите [ARCHITECTURE.md](ARCHITECTURE.md) — детальное описание всех модулей, маршрутов, фронтенд-архитектуры и жизненного цикла запросов.
+Смотрите [ARCHITECTURE.md](ARCHITECTURE.md) — детальное описание всех модулей, ORM-моделей, маршрутов и жизненного цикла запросов.

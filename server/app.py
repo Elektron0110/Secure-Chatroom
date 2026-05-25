@@ -1,16 +1,22 @@
 import os
 import json
+import uuid
 import hashlib
 import secrets
 import logging
-from datetime import datetime, timezone
+import sqlite3
+from datetime import datetime
 from functools import wraps
 
-import psycopg2
-import psycopg2.extras
-from flask import Flask, request, jsonify, make_response, render_template, Response
+from flask import Flask, request, jsonify, make_response, render_template
 from flask_cors import CORS
 from flask_sock import Sock
+from sqlalchemy import (
+    create_engine, Column, String, Boolean, DateTime, Text,
+    ForeignKey, func, Index, event,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.engine import Engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,77 +27,94 @@ sock = Sock(app)
 sessions = {}
 ws_clients = {}
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL must be set")
+# ─── База данных (SQLite + SQLAlchemy) ────────────────────────────────────────
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "messenger.db")
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    connect_args={"check_same_thread": False},
+)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+Base = declarative_base()
 
 
-def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
-    conn.autocommit = True
-    return conn
+@event.listens_for(Engine, "connect")
+def enable_foreign_keys(dbapi_conn, _):
+    if isinstance(dbapi_conn, sqlite3.Connection):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
+# ─── Модели ───────────────────────────────────────────────────────────────────
+
+class User(Base):
+    __tablename__ = "users"
+    id           = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username     = Column(String, nullable=False, unique=True)
+    password     = Column(String, nullable=False)
+    display_name = Column(String, nullable=False)
+    avatar_url   = Column(String)
+    is_online    = Column(Boolean, default=False)
+    last_seen    = Column(DateTime, default=datetime.utcnow)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class Chat(Base):
+    __tablename__ = "chats"
+    id         = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name       = Column(String)
+    is_group   = Column(Boolean, default=False)
+    avatar_url = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    participants = relationship(
+        "ChatParticipant", back_populates="chat", cascade="all, delete-orphan"
+    )
+    messages = relationship(
+        "Message", back_populates="chat", cascade="all, delete-orphan"
+    )
+
+
+class ChatParticipant(Base):
+    __tablename__ = "chat_participants"
+    id        = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id   = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    user_id   = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    chat = relationship("Chat", back_populates="participants")
+    user = relationship("User")
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id                = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id           = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    sender_id         = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content           = Column(Text, nullable=False)
+    encrypted_content = Column(Text)
+    is_read           = Column(Boolean, default=False)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+    chat   = relationship("Chat", back_populates="messages")
+    sender = relationship("User")
+
+
+Index("ix_cp_chat_id",    ChatParticipant.chat_id)
+Index("ix_cp_user_id",    ChatParticipant.user_id)
+Index("ix_msg_chat_id",   Message.chat_id)
+Index("ix_msg_sender_id", Message.sender_id)
 
 
 def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-            username TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL,
-            display_name TEXT NOT NULL,
-            avatar_url TEXT,
-            is_online BOOLEAN DEFAULT FALSE,
-            last_seen TIMESTAMP DEFAULT NOW(),
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS chats (
-            id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-            name TEXT,
-            is_group BOOLEAN DEFAULT FALSE,
-            avatar_url TEXT,
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS chat_participants (
-            id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-            chat_id VARCHAR NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-            user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            joined_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS chat_participants_chat_id_idx ON chat_participants(chat_id)
-    """)
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS chat_participants_user_id_idx ON chat_participants(user_id)
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
-            chat_id VARCHAR NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-            sender_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            content TEXT NOT NULL,
-            encrypted_content TEXT,
-            is_read BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS messages_chat_id_idx ON messages(chat_id)
-    """)
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS messages_sender_id_idx ON messages(sender_id)
-    """)
-    cur.close()
-    conn.close()
-    logger.info("Database tables initialized")
+    Base.metadata.create_all(engine)
+    logger.info("Database initialized: %s", DB_PATH)
 
+
+# ─── Вспомогательные функции ──────────────────────────────────────────────────
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -101,38 +124,78 @@ def generate_token():
     return secrets.token_hex(32)
 
 
-def serialize_datetime(obj):
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    return obj
+def dt_iso(dt):
+    return dt.isoformat() if isinstance(dt, datetime) else dt
 
 
-def user_to_dict(row, keys=None):
-    if keys is None:
-        keys = ["id", "username", "password", "display_name", "avatar_url", "is_online", "last_seen", "created_at"]
-    d = dict(zip(keys, row))
-    for k in ["last_seen", "created_at", "joined_at", "updated_at"]:
-        if k in d and isinstance(d[k], datetime):
-            d[k] = d[k].isoformat()
-    remap = {"display_name": "displayName", "avatar_url": "avatarUrl", "is_online": "isOnline",
-             "last_seen": "lastSeen", "created_at": "createdAt", "chat_id": "chatId",
-             "sender_id": "senderId", "encrypted_content": "encryptedContent",
-             "is_read": "isRead", "is_group": "isGroup", "updated_at": "updatedAt",
-             "user_id": "userId", "joined_at": "joinedAt"}
-    return {remap.get(k, k): v for k, v in d.items()}
+def user_dict(u):
+    return {
+        "id": u.id,
+        "username": u.username,
+        "displayName": u.display_name,
+        "avatarUrl": u.avatar_url,
+        "isOnline": u.is_online,
+    }
 
+
+def message_dict(m):
+    return {
+        "id": m.id,
+        "chatId": m.chat_id,
+        "senderId": m.sender_id,
+        "content": m.content,
+        "encryptedContent": m.encrypted_content,
+        "isRead": m.is_read,
+        "createdAt": dt_iso(m.created_at),
+        "sender": user_dict(m.sender),
+    }
+
+
+def chat_dict(chat, current_user_id, db):
+    participants = [{"user": user_dict(cp.user)} for cp in chat.participants]
+
+    last_msg_obj = (
+        db.query(Message)
+        .filter_by(chat_id=chat.id)
+        .order_by(Message.created_at.desc())
+        .first()
+    )
+    last_message = message_dict(last_msg_obj) if last_msg_obj else None
+
+    unread_count = (
+        db.query(func.count(Message.id))
+        .filter(
+            Message.chat_id == chat.id,
+            Message.is_read == False,  # noqa: E712
+            Message.sender_id != current_user_id,
+        )
+        .scalar()
+    )
+
+    return {
+        "id": chat.id,
+        "name": chat.name,
+        "isGroup": chat.is_group,
+        "avatarUrl": chat.avatar_url,
+        "createdAt": dt_iso(chat.created_at),
+        "updatedAt": dt_iso(chat.updated_at),
+        "participants": participants,
+        "lastMessage": last_message,
+        "unreadCount": unread_count,
+    }
+
+
+# ─── Auth декоратор ───────────────────────────────────────────────────────────
 
 def auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        auth_header = request.headers.get("Authorization", "")
         token = None
+        auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
         if not token:
-            cookie_token = request.cookies.get("token")
-            if cookie_token:
-                token = cookie_token
+            token = request.cookies.get("token")
         if not token or token not in sessions:
             return jsonify({"error": "Unauthorized"}), 401
         request.user_id = sessions[token]
@@ -141,13 +204,14 @@ def auth_required(f):
     return decorated
 
 
+# ─── CORS ─────────────────────────────────────────────────────────────────────
+
 def setup_cors():
     origins = set()
     replit_dev = os.environ.get("REPLIT_DEV_DOMAIN")
     if replit_dev:
         origins.add(f"https://{replit_dev}")
-    replit_domains = os.environ.get("REPLIT_DOMAINS", "")
-    for d in replit_domains.split(","):
+    for d in os.environ.get("REPLIT_DOMAINS", "").split(","):
         d = d.strip()
         if d:
             origins.add(f"https://{d}")
@@ -155,8 +219,11 @@ def setup_cors():
     @app.after_request
     def add_cors_headers(response):
         origin = request.headers.get("Origin", "")
-        is_localhost = origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")
-        if origin and (origin in origins or is_localhost):
+        is_local = (
+            origin.startswith("http://localhost:")
+            or origin.startswith("http://127.0.0.1:")
+        )
+        if origin and (origin in origins or is_local):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
@@ -168,14 +235,19 @@ def setup_cors():
         if request.method == "OPTIONS":
             resp = make_response()
             origin = request.headers.get("Origin", "")
-            is_localhost = origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")
-            if origin and (origin in origins or is_localhost):
+            is_local = (
+                origin.startswith("http://localhost:")
+                or origin.startswith("http://127.0.0.1:")
+            )
+            if origin and (origin in origins or is_local):
                 resp.headers["Access-Control-Allow-Origin"] = origin
                 resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
                 resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
                 resp.headers["Access-Control-Allow-Credentials"] = "true"
             return resp
 
+
+# ─── WebSocket broadcast ──────────────────────────────────────────────────────
 
 def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
     payload = json.dumps({"type": "message", "chatId": chat_id, "data": message_data})
@@ -191,6 +263,8 @@ def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
         ws_clients.pop(uid, None)
 
 
+# ─── Маршруты ─────────────────────────────────────────────────────────────────
+
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
@@ -204,10 +278,10 @@ def status():
 @app.route("/api/auth/register", methods=["POST"])
 def register():
     try:
-        data = request.get_json()
-        username = (data or {}).get("username", "")
-        password = (data or {}).get("password", "")
-        display_name = (data or {}).get("displayName", "")
+        data         = request.get_json() or {}
+        username     = data.get("username", "")
+        password     = data.get("password", "")
+        display_name = data.get("displayName", "")
 
         if len(username) < 3:
             return jsonify({"error": "Username must be at least 3 characters"}), 400
@@ -216,90 +290,92 @@ def register():
         if not display_name:
             return jsonify({"error": "Display name is required"}), 400
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
-        if cur.fetchone():
-            cur.close()
-            conn.close()
-            return jsonify({"error": "Username already exists"}), 400
+        db = SessionLocal()
+        try:
+            if db.query(User).filter_by(username=username).first():
+                return jsonify({"error": "Username already exists"}), 400
 
-        hashed = hash_password(password)
-        cur.execute(
-            "INSERT INTO users (username, password, display_name) VALUES (%s, %s, %s) RETURNING id, username, display_name",
-            (username, hashed, display_name)
-        )
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
+            user = User(
+                username=username,
+                password=hash_password(password),
+                display_name=display_name,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
 
-        token = generate_token()
-        sessions[token] = row[0]
+            token = generate_token()
+            sessions[token] = user.id
 
-        resp = make_response(jsonify({
-            "user": {"id": row[0], "username": row[1], "displayName": row[2]},
-            "token": token
-        }))
-        resp.set_cookie("token", token, httponly=True, samesite="Lax")
-        return resp
+            resp = make_response(jsonify({
+                "user": {"id": user.id, "username": user.username, "displayName": user.display_name},
+                "token": token,
+            }))
+            resp.set_cookie("token", token, httponly=True, samesite="Lax")
+            return resp
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Register error: {e}")
+        logger.error("Register error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     try:
-        data = request.get_json()
-        username = (data or {}).get("username", "")
-        password = (data or {}).get("password", "")
+        data     = request.get_json() or {}
+        username = data.get("username", "")
+        password = data.get("password", "")
 
         if len(username) < 3:
             return jsonify({"error": "Username must be at least 3 characters"}), 400
         if len(password) < 6:
             return jsonify({"error": "Password must be at least 6 characters"}), 400
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT id, username, password, display_name, avatar_url FROM users WHERE username = %s", (username,))
-        row = cur.fetchone()
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter_by(username=username).first()
+            if not user or user.password != hash_password(password):
+                return jsonify({"error": "Invalid credentials"}), 401
 
-        if not row or row[2] != hash_password(password):
-            cur.close()
-            conn.close()
-            return jsonify({"error": "Invalid credentials"}), 401
+            user.is_online = True
+            user.last_seen = datetime.utcnow()
+            db.commit()
 
-        user_id = row[0]
-        cur.execute("UPDATE users SET is_online = TRUE WHERE id = %s", (user_id,))
-        cur.close()
-        conn.close()
+            token = generate_token()
+            sessions[token] = user.id
 
-        token = generate_token()
-        sessions[token] = user_id
-
-        resp = make_response(jsonify({
-            "user": {"id": row[0], "username": row[1], "displayName": row[3], "avatarUrl": row[4]},
-            "token": token
-        }))
-        resp.set_cookie("token", token, httponly=True, samesite="Lax")
-        return resp
+            resp = make_response(jsonify({
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "displayName": user.display_name,
+                    "avatarUrl": user.avatar_url,
+                },
+                "token": token,
+            }))
+            resp.set_cookie("token", token, httponly=True, samesite="Lax")
+            return resp
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Login error: {e}")
+        logger.error("Login error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
 @app.route("/api/auth/logout", methods=["POST"])
 @auth_required
 def logout():
-    token = request.token
-    user_id = request.user_id
-    sessions.pop(token, None)
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET is_online = FALSE WHERE id = %s", (user_id,))
-    cur.close()
-    conn.close()
+    sessions.pop(request.token, None)
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(id=request.user_id).first()
+        if user:
+            user.is_online = False
+            user.last_seen = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
 
     resp = make_response(jsonify({"success": True}))
     resp.delete_cookie("token")
@@ -310,25 +386,16 @@ def logout():
 @auth_required
 def get_me():
     try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT id, username, display_name, avatar_url, is_online FROM users WHERE id = %s", (request.user_id,))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if not row:
-            return jsonify({"error": "User not found"}), 404
-
-        return jsonify({
-            "id": row[0],
-            "username": row[1],
-            "displayName": row[2],
-            "avatarUrl": row[3],
-            "isOnline": row[4]
-        })
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter_by(id=request.user_id).first()
+            if not user:
+                return jsonify({"error": "User not found"}), 404
+            return jsonify(user_dict(user))
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Get me error: {e}")
+        logger.error("Get me error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -337,90 +404,26 @@ def get_me():
 def get_chats():
     try:
         user_id = request.user_id
-        conn = get_db()
-        cur = conn.cursor()
+        db = SessionLocal()
+        try:
+            chat_ids = [
+                r.chat_id
+                for r in db.query(ChatParticipant.chat_id).filter_by(user_id=user_id).all()
+            ]
+            if not chat_ids:
+                return jsonify([])
 
-        cur.execute("SELECT chat_id FROM chat_participants WHERE user_id = %s", (user_id,))
-        chat_ids = [r[0] for r in cur.fetchall()]
-
-        if not chat_ids:
-            cur.close()
-            conn.close()
-            return jsonify([])
-
-        cur.execute(
-            "SELECT id, name, is_group, avatar_url, created_at, updated_at FROM chats WHERE id = ANY(%s) ORDER BY updated_at DESC",
-            (chat_ids,)
-        )
-        chats_rows = cur.fetchall()
-
-        result = []
-        for chat_row in chats_rows:
-            chat_id = chat_row[0]
-
-            cur.execute("""
-                SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_online
-                FROM chat_participants cp
-                JOIN users u ON cp.user_id = u.id
-                WHERE cp.chat_id = %s
-            """, (chat_id,))
-            participants = []
-            for p in cur.fetchall():
-                participants.append({
-                    "user": {
-                        "id": p[0], "username": p[1], "displayName": p[2],
-                        "avatarUrl": p[3], "isOnline": p[4]
-                    }
-                })
-
-            cur.execute("""
-                SELECT m.id, m.chat_id, m.sender_id, m.content, m.encrypted_content, m.is_read, m.created_at,
-                       u.id, u.username, u.display_name, u.avatar_url, u.is_online
-                FROM messages m
-                JOIN users u ON m.sender_id = u.id
-                WHERE m.chat_id = %s
-                ORDER BY m.created_at DESC
-                LIMIT 1
-            """, (chat_id,))
-            last_msg_row = cur.fetchone()
-            last_message = None
-            if last_msg_row:
-                last_message = {
-                    "id": last_msg_row[0], "chatId": last_msg_row[1],
-                    "senderId": last_msg_row[2], "content": last_msg_row[3],
-                    "encryptedContent": last_msg_row[4], "isRead": last_msg_row[5],
-                    "createdAt": last_msg_row[6].isoformat() if last_msg_row[6] else None,
-                    "sender": {
-                        "id": last_msg_row[7], "username": last_msg_row[8],
-                        "displayName": last_msg_row[9], "avatarUrl": last_msg_row[10],
-                        "isOnline": last_msg_row[11]
-                    }
-                }
-
-            cur.execute("""
-                SELECT COUNT(*) FROM messages
-                WHERE chat_id = %s AND is_read = FALSE AND sender_id != %s
-            """, (chat_id, user_id))
-            unread_count = cur.fetchone()[0]
-
-            chat = {
-                "id": chat_row[0],
-                "name": chat_row[1],
-                "isGroup": chat_row[2],
-                "avatarUrl": chat_row[3],
-                "createdAt": chat_row[4].isoformat() if chat_row[4] else None,
-                "updatedAt": chat_row[5].isoformat() if chat_row[5] else None,
-                "participants": participants,
-                "lastMessage": last_message,
-                "unreadCount": unread_count
-            }
-            result.append(chat)
-
-        cur.close()
-        conn.close()
-        return jsonify(result)
+            chats = (
+                db.query(Chat)
+                .filter(Chat.id.in_(chat_ids))
+                .order_by(Chat.updated_at.desc())
+                .all()
+            )
+            return jsonify([chat_dict(c, user_id, db) for c in chats])
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Get chats error: {e}")
+        logger.error("Get chats error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -428,78 +431,37 @@ def get_chats():
 @auth_required
 def create_chat():
     try:
-        user_id = request.user_id
-        data = request.get_json()
-        name = (data or {}).get("name")
-        participant_ids = (data or {}).get("participantIds", [])
-        is_group = (data or {}).get("isGroup", False)
+        user_id         = request.user_id
+        data            = request.get_json() or {}
+        name            = data.get("name")
+        participant_ids = data.get("participantIds", [])
+        is_group        = data.get("isGroup", False)
 
-        if not participant_ids or not isinstance(participant_ids, list) or len(participant_ids) == 0:
+        if not participant_ids or not isinstance(participant_ids, list):
             return jsonify({"error": "At least one participant is required"}), 400
 
         all_ids = list(set([user_id] + participant_ids))
 
-        conn = get_db()
-        cur = conn.cursor()
+        db = SessionLocal()
+        try:
+            chat = Chat(name=name, is_group=is_group)
+            db.add(chat)
+            db.flush()
 
-        cur.execute(
-            "INSERT INTO chats (name, is_group) VALUES (%s, %s) RETURNING id",
-            (name, is_group)
-        )
-        chat_id = cur.fetchone()[0]
+            for pid in all_ids:
+                db.add(ChatParticipant(chat_id=chat.id, user_id=pid))
 
-        for pid in all_ids:
-            cur.execute(
-                "INSERT INTO chat_participants (chat_id, user_id) VALUES (%s, %s)",
-                (chat_id, pid)
-            )
+            db.commit()
+            db.refresh(chat)
 
-        cur.close()
-        conn.close()
+            for cp in chat.participants:
+                _ = cp.user  # eager-load для сериализации
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT chat_id FROM chat_participants WHERE user_id = %s", (user_id,))
-        chat_ids = [r[0] for r in cur.fetchall()]
-
-        cur.execute(
-            "SELECT id, name, is_group, avatar_url, created_at, updated_at FROM chats WHERE id = %s",
-            (chat_id,)
-        )
-        chat_row = cur.fetchone()
-
-        cur.execute("""
-            SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_online
-            FROM chat_participants cp
-            JOIN users u ON cp.user_id = u.id
-            WHERE cp.chat_id = %s
-        """, (chat_id,))
-        participants = []
-        for p in cur.fetchall():
-            participants.append({
-                "user": {
-                    "id": p[0], "username": p[1], "displayName": p[2],
-                    "avatarUrl": p[3], "isOnline": p[4]
-                }
-            })
-
-        result = {
-            "id": chat_row[0],
-            "name": chat_row[1],
-            "isGroup": chat_row[2],
-            "avatarUrl": chat_row[3],
-            "createdAt": chat_row[4].isoformat() if chat_row[4] else None,
-            "updatedAt": chat_row[5].isoformat() if chat_row[5] else None,
-            "participants": participants,
-            "lastMessage": None,
-            "unreadCount": 0
-        }
-
-        cur.close()
-        conn.close()
-        return jsonify(result)
+            return jsonify(chat_dict(chat, user_id, db))
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Create chat error: {e}")
+        logger.error("Create chat error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -508,21 +470,19 @@ def create_chat():
 def delete_chat(chat_id):
     try:
         user_id = request.user_id
-        conn = get_db()
-        cur = conn.cursor()
-
-        cur.execute(
-            "SELECT id FROM chat_participants WHERE chat_id = %s AND user_id = %s",
-            (chat_id, user_id)
-        )
-        if cur.fetchone():
-            cur.execute("DELETE FROM chats WHERE id = %s", (chat_id,))
-
-        cur.close()
-        conn.close()
-        return jsonify({"success": True})
+        db = SessionLocal()
+        try:
+            cp = db.query(ChatParticipant).filter_by(chat_id=chat_id, user_id=user_id).first()
+            if cp:
+                chat = db.query(Chat).filter_by(id=chat_id).first()
+                if chat:
+                    db.delete(chat)
+                    db.commit()
+            return jsonify({"success": True})
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Delete chat error: {e}")
+        logger.error("Delete chat error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -531,37 +491,20 @@ def delete_chat(chat_id):
 def get_messages(chat_id):
     try:
         limit = request.args.get("limit", 50, type=int)
-        conn = get_db()
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT m.id, m.chat_id, m.sender_id, m.content, m.encrypted_content, m.is_read, m.created_at,
-                   u.id, u.username, u.display_name, u.avatar_url, u.is_online
-            FROM messages m
-            JOIN users u ON m.sender_id = u.id
-            WHERE m.chat_id = %s
-            ORDER BY m.created_at DESC
-            LIMIT %s
-        """, (chat_id, limit))
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        result = []
-        for r in reversed(rows):
-            result.append({
-                "id": r[0], "chatId": r[1], "senderId": r[2], "content": r[3],
-                "encryptedContent": r[4], "isRead": r[5],
-                "createdAt": r[6].isoformat() if r[6] else None,
-                "sender": {
-                    "id": r[7], "username": r[8], "displayName": r[9],
-                    "avatarUrl": r[10], "isOnline": r[11]
-                }
-            })
-
-        return jsonify(result)
+        db = SessionLocal()
+        try:
+            msgs = (
+                db.query(Message)
+                .filter_by(chat_id=chat_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return jsonify([message_dict(m) for m in reversed(msgs)])
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Get messages error: {e}")
+        logger.error("Get messages error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -569,46 +512,39 @@ def get_messages(chat_id):
 @auth_required
 def create_message(chat_id):
     try:
-        user_id = request.user_id
-        data = request.get_json()
-        content = (data or {}).get("content", "").strip()
-        encrypted_content = (data or {}).get("encryptedContent")
+        user_id           = request.user_id
+        data              = request.get_json() or {}
+        content           = data.get("content", "").strip()
+        encrypted_content = data.get("encryptedContent")
 
         if not content:
             return jsonify({"error": "Message content is required"}), 400
 
-        conn = get_db()
-        cur = conn.cursor()
+        db = SessionLocal()
+        try:
+            msg = Message(
+                chat_id=chat_id,
+                sender_id=user_id,
+                content=content,
+                encrypted_content=encrypted_content,
+            )
+            db.add(msg)
 
-        cur.execute(
-            "INSERT INTO messages (chat_id, sender_id, content, encrypted_content) VALUES (%s, %s, %s, %s) RETURNING id, chat_id, sender_id, content, encrypted_content, is_read, created_at",
-            (chat_id, user_id, content, encrypted_content)
-        )
-        msg = cur.fetchone()
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if chat:
+                chat.updated_at = datetime.utcnow()
 
-        cur.execute("UPDATE chats SET updated_at = NOW() WHERE id = %s", (chat_id,))
+            db.commit()
+            db.refresh(msg)
+            _ = msg.sender  # eager-load
 
-        cur.execute("SELECT id, username, display_name, avatar_url, is_online FROM users WHERE id = %s", (user_id,))
-        sender = cur.fetchone()
-
-        cur.close()
-        conn.close()
-
-        message_with_sender = {
-            "id": msg[0], "chatId": msg[1], "senderId": msg[2], "content": msg[3],
-            "encryptedContent": msg[4], "isRead": msg[5],
-            "createdAt": msg[6].isoformat() if msg[6] else None,
-            "sender": {
-                "id": sender[0], "username": sender[1], "displayName": sender[2],
-                "avatarUrl": sender[3], "isOnline": sender[4]
-            }
-        }
-
-        broadcast_to_chat(chat_id, message_with_sender, exclude_user_id=user_id)
-
-        return jsonify(message_with_sender)
+            result = message_dict(msg)
+            broadcast_to_chat(chat_id, result, exclude_user_id=user_id)
+            return jsonify(result)
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Create message error: {e}")
+        logger.error("Create message error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -616,17 +552,18 @@ def create_message(chat_id):
 @auth_required
 def mark_read(chat_id):
     try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE messages SET is_read = TRUE WHERE chat_id = %s AND is_read = FALSE",
-            (chat_id,)
-        )
-        cur.close()
-        conn.close()
-        return jsonify({"success": True})
+        db = SessionLocal()
+        try:
+            db.query(Message).filter(
+                Message.chat_id == chat_id,
+                Message.is_read == False,  # noqa: E712
+            ).update({"is_read": True})
+            db.commit()
+            return jsonify({"success": True})
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Mark read error: {e}")
+        logger.error("Mark read error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -635,46 +572,48 @@ def mark_read(chat_id):
 def search_users():
     try:
         user_id = request.user_id
-        query = request.args.get("q", "")
-
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT id, username, display_name, avatar_url, is_online FROM users WHERE id != %s AND (LOWER(username) LIKE %s OR LOWER(display_name) LIKE %s)",
-            (user_id, f"%{query.lower()}%", f"%{query.lower()}%")
-        )
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        result = []
-        for r in rows:
-            result.append({
-                "id": r[0], "username": r[1], "displayName": r[2],
-                "avatarUrl": r[3], "isOnline": r[4]
-            })
-
-        return jsonify(result)
+        query   = request.args.get("q", "").lower()
+        db = SessionLocal()
+        try:
+            pattern = f"%{query}%"
+            users = (
+                db.query(User)
+                .filter(
+                    User.id != user_id,
+                    (func.lower(User.username).like(pattern))
+                    | (func.lower(User.display_name).like(pattern)),
+                )
+                .limit(20)
+                .all()
+            )
+            return jsonify([user_dict(u) for u in users])
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Search users error: {e}")
+        logger.error("Search users error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
+
+# ─── WebSocket ────────────────────────────────────────────────────────────────
 
 @sock.route("/ws")
 def websocket_handler(ws):
     token = request.args.get("token")
     if not token or token not in sessions:
-        ws.close(1008, "Unauthorized")
+        ws.close(reason="Unauthorized")
         return
 
     user_id = sessions[token]
     ws_clients[user_id] = ws
 
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET is_online = TRUE WHERE id = %s", (user_id,))
-    cur.close()
-    conn.close()
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(id=user_id).first()
+        if user:
+            user.is_online = True
+            db.commit()
+    finally:
+        db.close()
 
     try:
         while True:
@@ -682,34 +621,27 @@ def websocket_handler(ws):
             if data is None:
                 break
             try:
-                message = json.loads(data)
-                if message.get("type") == "typing":
-                    payload = json.dumps({
-                        "type": "typing",
-                        "chatId": message.get("chatId"),
-                        "userId": user_id
-                    })
-                    for uid, client_ws in ws_clients.items():
-                        if uid != user_id:
-                            try:
-                                client_ws.send(payload)
-                            except Exception:
-                                pass
-            except json.JSONDecodeError:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    ws.send(json.dumps({"type": "pong"}))
+            except Exception:
                 pass
     except Exception:
         pass
     finally:
         ws_clients.pop(user_id, None)
+        db = SessionLocal()
         try:
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("UPDATE users SET is_online = FALSE WHERE id = %s", (user_id,))
-            cur.close()
-            conn.close()
-        except Exception:
-            pass
+            user = db.query(User).filter_by(id=user_id).first()
+            if user:
+                user.is_online = False
+                user.last_seen = datetime.utcnow()
+                db.commit()
+        finally:
+            db.close()
 
+
+# ─── Инициализация ────────────────────────────────────────────────────────────
 
 setup_cors()
 init_db()

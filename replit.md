@@ -2,15 +2,16 @@
 
 ## Обзор
 
-Веб-мессенджер на Python/Flask с реальным временем через WebSocket.
+Веб-мессенджер на Python/Flask с реальным временем через WebSocket и базой данных SQLite через SQLAlchemy ORM.
+
 Главная документация: **[README.md](README.md)**
 Архитектура системы: **[ARCHITECTURE.md](ARCHITECTURE.md)**
 
 ## Технологический стек
 
-- **Backend:** Python 3.11, Flask 3, flask-sock (WebSocket), psycopg2
+- **Backend:** Python 3.11, Flask 3, flask-sock (WebSocket)
+- **База данных:** SQLite3 через SQLAlchemy 2.0 ORM (файл `messenger.db`)
 - **Frontend:** HTML5, CSS3, Vanilla JavaScript (без фреймворков)
-- **База данных:** PostgreSQL (Replit Database)
 - **Авторизация:** токен-сессии в памяти (Bearer token + cookie)
 
 ## Запуск
@@ -20,7 +21,8 @@
 npm run server:dev → tsx server/index.ts → python server/app.py (PORT=5000)
 ```
 
-Приложение доступно на **порту 5000** (externalPort=5000 в .replit).
+Приложение доступно на **порту 5000**.  
+База данных `messenger.db` создаётся автоматически в корне проекта.
 
 ## Структура проекта
 
@@ -28,8 +30,9 @@ npm run server:dev → tsx server/index.ts → python server/app.py (PORT=5000)
 ├── README.md           # Главная документация проекта
 ├── ARCHITECTURE.md     # Подробная архитектура системы
 ├── pyproject.toml      # Python-зависимости
+├── messenger.db        # SQLite база данных (автосоздание)
 ├── server/
-│   ├── app.py          # Весь бэкенд: Flask API, WebSocket, БД
+│   ├── app.py          # Весь бэкенд: Flask API, WebSocket, ORM-модели
 │   ├── index.ts        # Node.js-обёртка для Replit-воркфлоу
 │   └── templates/
 │       └── index.html  # SPA (HTML + CSS + JS)
@@ -40,9 +43,9 @@ npm run server:dev → tsx server/index.ts → python server/app.py (PORT=5000)
 | Локальный | Внешний | Назначение |
 |---|---|---|
 | 5000 | 5000 | Flask-приложение (основное) |
-| 8081 | 80 | Expo (не используется, занят Expo Go) |
 
 ## Пользовательские настройки
 
 - Документация ведётся на русском языке
 - Главный файл документации: README.md в корне проекта
+- База данных: SQLite через SQLAlchemy (не PostgreSQL)
