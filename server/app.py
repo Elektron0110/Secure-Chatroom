@@ -647,7 +647,7 @@ def search_users():
 def websocket_handler(ws):
     token = request.args.get("token")
     if not token or token not in sessions:
-        ws.close(reason="Unauthorized")
+        ws.close(1008, "Unauthorized")
         return
 
     user_id = sessions[token]
