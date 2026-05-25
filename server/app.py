@@ -5,11 +5,10 @@ import hashlib
 import secrets
 import logging
 import sqlite3
-from datetime import datetime
+import datetime
 from functools import wraps
 
 from flask import Flask, request, jsonify, make_response, render_template
-from flask_cors import CORS
 from flask_sock import Sock
 from sqlalchemy import (
     create_engine, Column, String, Boolean, DateTime, Text,
@@ -58,8 +57,8 @@ class User(Base):
     display_name  = Column(String, nullable=False)
     avatar_url    = Column(String)
     is_online     = Column(Boolean, default=False)
-    last_seen     = Column(DateTime, default=datetime.utcnow)
-    created_at    = Column(DateTime, default=datetime.utcnow)
+    last_seen     = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
+    created_at    = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
 
 class Chat(Base):
@@ -68,8 +67,8 @@ class Chat(Base):
     name       = Column(String)
     is_group   = Column(Boolean, default=False)
     avatar_url = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
+    updated_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
     participants = relationship(
         "ChatParticipant", back_populates="chat", cascade="all, delete-orphan"
@@ -84,7 +83,7 @@ class ChatParticipant(Base):
     id        = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     chat_id   = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
     user_id   = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    joined_at = Column(DateTime, default=datetime.utcnow)
+    joined_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
     chat = relationship("Chat", back_populates="participants")
     user = relationship("User")
@@ -98,7 +97,7 @@ class Message(Base):
     content           = Column(Text, nullable=False)
     encrypted_content = Column(Text)
     is_read           = Column(Boolean, default=False)
-    created_at        = Column(DateTime, default=datetime.utcnow)
+    created_at        = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
     chat   = relationship("Chat", back_populates="messages")
     sender = relationship("User")
@@ -134,7 +133,7 @@ def generate_token():
 
 
 def dt_iso(dt):
-    return dt.isoformat() if isinstance(dt, datetime) else dt
+    return dt.isoformat() if isinstance(dt, datetime.datetime) else dt
 
 
 def user_dict(u):
@@ -386,7 +385,7 @@ def login():
                 return jsonify({"error": "Invalid credentials"}), 401
 
             user.is_online = True
-            user.last_seen = datetime.utcnow()
+            user.last_seen = datetime.datetime.now(datetime.UTC)()
             db.commit()
 
             token = generate_token()
@@ -419,7 +418,7 @@ def logout():
         user = db.query(User).filter_by(id=request.user_id).first()
         if user:
             user.is_online = False
-            user.last_seen = datetime.utcnow()
+            user.last_seen = datetime.datetime.now(datetime.UTC)()
             db.commit()
     finally:
         db.close()
@@ -579,7 +578,7 @@ def create_message(chat_id):
 
             chat = db.query(Chat).filter_by(id=chat_id).first()
             if chat:
-                chat.updated_at = datetime.utcnow()
+                chat.updated_at = datetime.datetime.now(datetime.UTC)()
 
             db.commit()
             db.refresh(msg)
@@ -682,7 +681,7 @@ def websocket_handler(ws):
             user = db.query(User).filter_by(id=user_id).first()
             if user:
                 user.is_online = False
-                user.last_seen = datetime.utcnow()
+                user.last_seen = datetime.datetime.now(datetime.UTC)()
                 db.commit()
         finally:
             db.close()
@@ -694,5 +693,5 @@ setup_cors()
 init_db()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    port = int(os.environ.get("PORT", 1111))
+    app.run(host="127.0.0.1", port=port, debug=False)
