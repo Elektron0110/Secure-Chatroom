@@ -13,7 +13,7 @@ from flask_cors import CORS
 from flask_sock import Sock
 from sqlalchemy import (
     create_engine, Column, String, Boolean, DateTime, Text,
-    ForeignKey, func, Index, event,
+    ForeignKey, func, Index, event, text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.engine import Engine
@@ -51,14 +51,15 @@ def enable_foreign_keys(dbapi_conn, _):
 
 class User(Base):
     __tablename__ = "users"
-    id           = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    username     = Column(String, nullable=False, unique=True)
-    password     = Column(String, nullable=False)
-    display_name = Column(String, nullable=False)
-    avatar_url   = Column(String)
-    is_online    = Column(Boolean, default=False)
-    last_seen    = Column(DateTime, default=datetime.utcnow)
-    created_at   = Column(DateTime, default=datetime.utcnow)
+    id            = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username      = Column(String, nullable=False, unique=True)
+    password      = Column(String, nullable=False)
+    recovery_code = Column(String)
+    display_name  = Column(String, nullable=False)
+    avatar_url    = Column(String)
+    is_online     = Column(Boolean, default=False)
+    last_seen     = Column(DateTime, default=datetime.utcnow)
+    created_at    = Column(DateTime, default=datetime.utcnow)
 
 
 class Chat(Base):
@@ -111,6 +112,14 @@ Index("ix_msg_sender_id", Message.sender_id)
 
 def init_db():
     Base.metadata.create_all(engine)
+    # Миграция: добавить столбец recovery_code если ещё нет
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
+            conn.commit()
+            logger.info("Migration: added recovery_code column")
+        except Exception:
+            pass  # Столбец уже существует
     logger.info("Database initialized: %s", DB_PATH)
 
 
@@ -278,10 +287,11 @@ def status():
 @app.route("/api/auth/register", methods=["POST"])
 def register():
     try:
-        data         = request.get_json() or {}
-        username     = data.get("username", "")
-        password     = data.get("password", "")
-        display_name = data.get("displayName", "")
+        data          = request.get_json() or {}
+        username      = data.get("username", "")
+        password      = data.get("password", "")
+        display_name  = data.get("displayName", "")
+        recovery_code = str(data.get("recoveryCode", "")).strip()
 
         if len(username) < 3:
             return jsonify({"error": "Username must be at least 3 characters"}), 400
@@ -289,6 +299,8 @@ def register():
             return jsonify({"error": "Password must be at least 6 characters"}), 400
         if not display_name:
             return jsonify({"error": "Display name is required"}), 400
+        if not recovery_code.isdigit() or len(recovery_code) != 8:
+            return jsonify({"error": "Recovery code must be exactly 8 digits"}), 400
 
         db = SessionLocal()
         try:
@@ -298,6 +310,7 @@ def register():
             user = User(
                 username=username,
                 password=hash_password(password),
+                recovery_code=hash_password(recovery_code),
                 display_name=display_name,
             )
             db.add(user)
@@ -317,6 +330,40 @@ def register():
             db.close()
     except Exception as e:
         logger.error("Register error: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/auth/reset-password", methods=["POST"])
+def reset_password():
+    try:
+        data          = request.get_json() or {}
+        username      = data.get("username", "")
+        recovery_code = str(data.get("recoveryCode", "")).strip()
+        new_password  = data.get("newPassword", "")
+
+        if not username:
+            return jsonify({"error": "Username is required"}), 400
+        if not recovery_code.isdigit() or len(recovery_code) != 8:
+            return jsonify({"error": "Recovery code must be exactly 8 digits"}), 400
+        if len(new_password) < 6:
+            return jsonify({"error": "New password must be at least 6 characters"}), 400
+
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter_by(username=username).first()
+            if not user or not user.recovery_code:
+                return jsonify({"error": "User not found or recovery code not set"}), 400
+            if user.recovery_code != hash_password(recovery_code):
+                return jsonify({"error": "Invalid recovery code"}), 400
+
+            user.password = hash_password(new_password)
+            db.commit()
+
+            return jsonify({"success": True})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("Reset password error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 

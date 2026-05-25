@@ -61,6 +61,14 @@ a { color: inherit; text-decoration: none; }
 .auth-switch { text-align: center; margin-top: 18px; font-size: 13px; color: var(--text-secondary); }
 .auth-switch button { color: var(--primary); font-weight: 600; font-size: 13px; }
 .auth-error { background: #fee2e2; color: #b91c1c; border-radius: 7px; padding: 9px 12px; font-size: 13px; margin-bottom: 14px; display: none; }
+.auth-success { background: #dcfce7; color: #166534; border-radius: 7px; padding: 9px 12px; font-size: 13px; margin-bottom: 14px; display: none; }
+.recovery-info { background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 10px 13px; font-size: 12px; color: #166534; margin-bottom: 14px; line-height: 1.5; }
+.recovery-info strong { display: block; margin-bottom: 3px; font-size: 13px; }
+.field input[type="number"] { -moz-appearance: textfield; }
+.field input[type="number"]::-webkit-outer-spin-button,
+.field input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.auth-link { text-align: center; margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
+.auth-link button { color: var(--primary); font-weight: 600; font-size: 13px; }
 
 /* ─── LAYOUT ─── */
 #app { display: flex; height: 100dvh; overflow: hidden; }
@@ -214,6 +222,7 @@ a { color: inherit; text-decoration: none; }
         <button class="btn-primary" id="login-btn">Войти</button>
       </form>
       <div class="auth-switch">Нет аккаунта? <button id="go-register">Зарегистрироваться</button></div>
+      <div class="auth-link"><button id="go-reset">Забыли пароль?</button></div>
     </div>
 
     <!-- Register -->
@@ -225,9 +234,29 @@ a { color: inherit; text-decoration: none; }
         <div class="field"><label>Имя</label><input id="reg-name" type="text" placeholder="Ваше имя"></div>
         <div class="field"><label>Имя пользователя</label><input id="reg-username" type="text" placeholder="username (мин. 3 символа)" autocomplete="username"></div>
         <div class="field"><label>Пароль</label><input id="reg-password" type="password" placeholder="мин. 6 символов" autocomplete="new-password"></div>
+        <div class="recovery-info">
+          <strong>Код восстановления пароля</strong>
+          Придумайте и запомните произвольный код из 8 цифр. Он понадобится, если вы забудете пароль. Храните его в надёжном месте — восстановить пароль без этого кода невозможно.
+        </div>
+        <div class="field"><label>Код восстановления (8 цифр)</label><input id="reg-recovery" type="text" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="например: 47291836" autocomplete="off"></div>
         <button class="btn-primary" id="register-btn">Зарегистрироваться</button>
       </form>
       <div class="auth-switch">Уже есть аккаунт? <button id="go-login">Войти</button></div>
+    </div>
+
+    <!-- Reset password -->
+    <div id="reset-view" style="display:none">
+      <h2>Сброс пароля</h2>
+      <p>Введите имя пользователя и код восстановления</p>
+      <div class="auth-error" id="reset-error"></div>
+      <div class="auth-success" id="reset-success"></div>
+      <form onsubmit="return false">
+        <div class="field"><label>Имя пользователя</label><input id="reset-username" type="text" placeholder="username" autocomplete="username"></div>
+        <div class="field"><label>Код восстановления (8 цифр)</label><input id="reset-code" type="text" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="ваш 8-значный код" autocomplete="off"></div>
+        <div class="field"><label>Новый пароль</label><input id="reset-newpass" type="password" placeholder="мин. 6 символов" autocomplete="new-password"></div>
+        <button class="btn-primary" id="reset-btn">Сменить пароль</button>
+      </form>
+      <div class="auth-switch"><button id="go-login-from-reset">Вернуться ко входу</button></div>
     </div>
   </div>
 </div>
@@ -383,12 +412,16 @@ async function login(username, password) {
   localStorage.setItem('user', JSON.stringify(data.user));
 }
 
-async function register(username, password, displayName) {
-  const data = await api('POST', '/api/auth/register', { username, password, displayName });
+async function register(username, password, displayName, recoveryCode) {
+  const data = await api('POST', '/api/auth/register', { username, password, displayName, recoveryCode });
   state.token = data.token;
   state.user = data.user;
   localStorage.setItem('token', data.token);
   localStorage.setItem('user', JSON.stringify(data.user));
+}
+
+async function resetPassword(username, recoveryCode, newPassword) {
+  await api('POST', '/api/auth/reset-password', { username, recoveryCode, newPassword });
 }
 
 async function logout() {
@@ -722,6 +755,7 @@ function showAuth() {
   qs('#app').style.display = 'none';
   qs('#login-view').style.display = 'block';
   qs('#register-view').style.display = 'none';
+  qs('#reset-view').style.display = 'none';
 }
 
 function showApp() {
@@ -806,13 +840,29 @@ function setupEvents() {
   // Auth
   qs('#go-register').onclick = () => {
     qs('#login-view').style.display = 'none';
+    qs('#reset-view').style.display = 'none';
     qs('#register-view').style.display = 'block';
     qs('#login-error').style.display = 'none';
   };
   qs('#go-login').onclick = () => {
     qs('#register-view').style.display = 'none';
+    qs('#reset-view').style.display = 'none';
     qs('#login-view').style.display = 'block';
     qs('#register-error').style.display = 'none';
+  };
+  qs('#go-reset').onclick = () => {
+    qs('#login-view').style.display = 'none';
+    qs('#register-view').style.display = 'none';
+    qs('#reset-view').style.display = 'block';
+    qs('#reset-error').style.display = 'none';
+    qs('#reset-success').style.display = 'none';
+  };
+  qs('#go-login-from-reset').onclick = () => {
+    qs('#reset-view').style.display = 'none';
+    qs('#register-view').style.display = 'none';
+    qs('#login-view').style.display = 'block';
+    qs('#reset-error').style.display = 'none';
+    qs('#reset-success').style.display = 'none';
   };
 
   qs('#login-btn').onclick = async () => {
@@ -836,19 +886,49 @@ function setupEvents() {
     const name = qs('#reg-name').value.trim();
     const u = qs('#reg-username').value.trim();
     const p = qs('#reg-password').value;
+    const rc = qs('#reg-recovery').value.trim();
     const errEl = qs('#register-error');
-    if (!name || !u || !p) { errEl.textContent = 'Заполните все поля'; errEl.style.display = 'block'; return; }
+    errEl.style.display = 'none';
+    if (!name || !u || !p || !rc) { errEl.textContent = 'Заполните все поля'; errEl.style.display = 'block'; return; }
     if (u.length < 3) { errEl.textContent = 'Имя пользователя: минимум 3 символа'; errEl.style.display = 'block'; return; }
     if (p.length < 6) { errEl.textContent = 'Пароль: минимум 6 символов'; errEl.style.display = 'block'; return; }
+    if (!/^\d{8}$/.test(rc)) { errEl.textContent = 'Код восстановления: ровно 8 цифр'; errEl.style.display = 'block'; return; }
     qs('#register-btn').disabled = true;
     try {
-      await register(u, p, name);
+      await register(u, p, name, rc);
       showApp();
     } catch (e) {
       errEl.textContent = e.message || 'Ошибка регистрации';
       errEl.style.display = 'block';
     } finally {
       qs('#register-btn').disabled = false;
+    }
+  };
+
+  qs('#reset-btn').onclick = async () => {
+    const u = qs('#reset-username').value.trim();
+    const rc = qs('#reset-code').value.trim();
+    const np = qs('#reset-newpass').value;
+    const errEl = qs('#reset-error');
+    const okEl = qs('#reset-success');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+    if (!u || !rc || !np) { errEl.textContent = 'Заполните все поля'; errEl.style.display = 'block'; return; }
+    if (!/^\d{8}$/.test(rc)) { errEl.textContent = 'Код восстановления: ровно 8 цифр'; errEl.style.display = 'block'; return; }
+    if (np.length < 6) { errEl.textContent = 'Новый пароль: минимум 6 символов'; errEl.style.display = 'block'; return; }
+    qs('#reset-btn').disabled = true;
+    try {
+      await resetPassword(u, rc, np);
+      okEl.textContent = 'Пароль успешно изменён. Теперь войдите с новым паролем.';
+      okEl.style.display = 'block';
+      qs('#reset-username').value = '';
+      qs('#reset-code').value = '';
+      qs('#reset-newpass').value = '';
+    } catch (e) {
+      errEl.textContent = e.message || 'Ошибка сброса пароля';
+      errEl.style.display = 'block';
+    } finally {
+      qs('#reset-btn').disabled = false;
     }
   };
 
