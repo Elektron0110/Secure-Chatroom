@@ -152,7 +152,7 @@ def message_dict(m):
 
 
 def chat_dict(chat, current_user_id, db):
-    participants = [{"user": user_dict(cp.user)} for cp in chat.participants]
+    participants = [user_dict(cp.user) for cp in chat.participants]
 
     last_msg_obj = (
         db.query(Message)

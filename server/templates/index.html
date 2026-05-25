@@ -517,7 +517,7 @@ async function createChat(participantId) {
     const chat = await api('POST', '/api/chats', { participantIds: [participantId] });
     await loadChats();
     closeModal('new-chat-modal');
-    openChat(chat.id);
+    await openChat(chat.id);
   } catch (e) {
     showToast(e.message || 'Ошибка создания чата');
   }
@@ -658,7 +658,7 @@ function getChatName(chat) {
   if (chat.name) return chat.name;
   if (chat.participants) {
     const other = chat.participants.find(p => p.id !== state.user.id);
-    if (other) return other.displayName || other.username;
+    if (other) return other.displayName || other.username || 'Пользователь';
   }
   return 'Чат';
 }
