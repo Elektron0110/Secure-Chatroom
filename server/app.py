@@ -693,5 +693,7 @@ setup_cors()
 init_db()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 1111))
-    app.run(host="127.0.0.1", port=port, debug=False)
+    if os.path.isdir('C:'):
+        app.run(host="127.0.0.1", port=1111, debug=True)
+    else:
+        app.run(host="0.0.0.0", port=5000, debug=False)
