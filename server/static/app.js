@@ -224,6 +224,91 @@ function updateProfileAvatar() {
   }
 }
 
+async function updateProfile(field, value) {
+  try {
+    const data = await api('PATCH', '/api/auth/profile', { [field]: value });
+    state.user = { ...state.user, ...data.user };
+    renderProfilePanel();
+    updateAvatarDisplays();
+    showToast('Сохранено');
+  } catch (e) {
+    showToast(e.message || 'Ошибка сохранения', true);
+    throw e;
+  }
+}
+
+function startInlineEdit(item, field, currentValue) {
+  const content = item.querySelector('.profile-item-content');
+  const editBtn = item.querySelector('.profile-edit-btn');
+  if (!content || item.dataset.editing === '1') return;
+  item.dataset.editing = '1';
+  editBtn.style.display = 'none';
+
+  const label = content.querySelector('.profile-item-label');
+  const hint = content.querySelector('.profile-item-value');
+  label.style.display = 'none';
+  hint.style.display = 'none';
+
+  const row = document.createElement('div');
+  row.className = 'profile-item-edit-row';
+
+  const input = document.createElement('input');
+  input.className = 'profile-item-input';
+  input.value = currentValue;
+  if (field === 'username') {
+    input.placeholder = 'username';
+    input.autocapitalize = 'none';
+    input.autocorrect = 'off';
+  } else {
+    input.placeholder = 'Имя';
+  }
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'profile-item-action-btn save';
+  saveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+  saveBtn.title = 'Сохранить';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'profile-item-action-btn cancel';
+  cancelBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  cancelBtn.title = 'Отмена';
+
+  row.appendChild(input);
+  row.appendChild(saveBtn);
+  row.appendChild(cancelBtn);
+  content.appendChild(row);
+  input.focus();
+  input.select();
+
+  function stopEdit() {
+    item.dataset.editing = '0';
+    editBtn.style.display = '';
+    label.style.display = '';
+    hint.style.display = '';
+    content.removeChild(row);
+  }
+
+  saveBtn.onclick = async () => {
+    const newVal = input.value.trim();
+    if (!newVal || newVal === currentValue) { stopEdit(); return; }
+    saveBtn.disabled = true;
+    try {
+      await updateProfile(field, newVal);
+      stopEdit();
+    } catch (_) {
+      saveBtn.disabled = false;
+      input.focus();
+    }
+  };
+
+  cancelBtn.onclick = stopEdit;
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveBtn.onclick();
+    if (e.key === 'Escape') stopEdit();
+  });
+}
+
 // ═══════════════════════════════════════════════
 //  WEBSOCKET
 // ═══════════════════════════════════════════════
@@ -879,6 +964,16 @@ function setupEvents() {
   };
   qs('#close-profile').onclick = () => qs('#profile-panel').classList.remove('open');
   qs('#logout-btn').onclick = logout;
+
+  // Inline profile editing
+  qs('#profile-item-name').querySelector('.profile-edit-btn').onclick = () => {
+    const val = state.user ? (state.user.displayName || '') : '';
+    startInlineEdit(qs('#profile-item-name'), 'displayName', val);
+  };
+  qs('#profile-item-username').querySelector('.profile-edit-btn').onclick = () => {
+    const val = state.user ? (state.user.username || '') : '';
+    startInlineEdit(qs('#profile-item-username'), 'username', val);
+  };
 
   // Theme toggle
   qs('#theme-btn').onclick = () => {

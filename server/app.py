@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import uuid
 import hashlib
@@ -621,6 +622,43 @@ def mark_read(chat_id):
             db.close()
     except Exception as e:
         logger.error("Mark read error: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/auth/profile", methods=["PATCH"])
+@auth_required
+def update_profile():
+    try:
+        user_id = request.user_id
+        data = request.get_json() or {}
+        new_display_name = data.get("displayName", "").strip() if "displayName" in data else None
+        new_username = data.get("username", "").strip() if "username" in data else None
+
+        if new_display_name is not None and not new_display_name:
+            return jsonify({"error": "Имя не может быть пустым"}), 400
+        if new_username is not None:
+            if len(new_username) < 3:
+                return jsonify({"error": "Минимум 3 символа"}), 400
+            if not re.match(r'^[a-zA-Z0-9_]+$', new_username):
+                return jsonify({"error": "Только буквы, цифры и подчёркивание"}), 400
+
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter_by(id=user_id).first()
+            if not user:
+                return jsonify({"error": "User not found"}), 404
+            if new_username is not None and new_username != user.username:
+                if db.query(User).filter_by(username=new_username).first():
+                    return jsonify({"error": "Имя пользователя уже занято"}), 409
+                user.username = new_username
+            if new_display_name is not None:
+                user.display_name = new_display_name
+            db.commit()
+            return jsonify({"user": user_dict(user)})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("Update profile error: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
