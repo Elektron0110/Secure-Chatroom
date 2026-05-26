@@ -50,22 +50,22 @@ def enable_foreign_keys(dbapi_conn, _):
 
 class User(Base):
     __tablename__ = "users"
-    id            = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    username      = Column(String, nullable=False, unique=True)
-    password      = Column(String, nullable=False)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String, nullable=False, unique=True)
+    password = Column(String, nullable=False)
     recovery_code = Column(String)
-    display_name  = Column(String, nullable=False)
-    avatar_url    = Column(String)
-    is_online     = Column(Boolean, default=False)
-    last_seen     = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
-    created_at    = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
+    display_name = Column(String, nullable=False)
+    avatar_url = Column(String)
+    is_online = Column(Boolean, default=False)
+    last_seen = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
+    created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
 
 class Chat(Base):
     __tablename__ = "chats"
-    id         = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    name       = Column(String)
-    is_group   = Column(Boolean, default=False)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String)
+    is_group = Column(Boolean, default=False)
     avatar_url = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
     updated_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
@@ -80,9 +80,11 @@ class Chat(Base):
 
 class ChatParticipant(Base):
     __tablename__ = "chat_participants"
-    id        = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    chat_id   = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
-    user_id   = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id = Column(String, ForeignKey(
+        "chats.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False)
     joined_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
     chat = relationship("Chat", back_populates="participants")
@@ -91,15 +93,17 @@ class ChatParticipant(Base):
 
 class Message(Base):
     __tablename__ = "messages"
-    id                = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    chat_id           = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
-    sender_id         = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    content           = Column(Text, nullable=False)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id = Column(String, ForeignKey(
+        "chats.id", ondelete="CASCADE"), nullable=False)
+    sender_id = Column(String, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=False)
     encrypted_content = Column(Text)
-    is_read           = Column(Boolean, default=False)
-    created_at        = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
-    chat   = relationship("Chat", back_populates="messages")
+    chat = relationship("Chat", back_populates="messages")
     sender = relationship("User")
 
 
@@ -114,7 +118,8 @@ def init_db():
     # Миграция: добавить столбец recovery_code если ещё нет
     with engine.connect() as conn:
         try:
-            conn.execute(text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
             conn.commit()
             logger.info("Migration: added recovery_code column")
         except Exception:
@@ -258,7 +263,8 @@ def setup_cors():
 # ─── WebSocket broadcast ──────────────────────────────────────────────────────
 
 def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
-    payload = json.dumps({"type": "message", "chatId": chat_id, "data": message_data})
+    payload = json.dumps(
+        {"type": "message", "chatId": chat_id, "data": message_data})
     disconnected = []
     for uid, ws in ws_clients.items():
         if exclude_user_id and uid == exclude_user_id:
@@ -286,10 +292,10 @@ def status():
 @app.route("/api/auth/register", methods=["POST"])
 def register():
     try:
-        data          = request.get_json() or {}
-        username      = data.get("username", "")
-        password      = data.get("password", "")
-        display_name  = data.get("displayName", "")
+        data = request.get_json() or {}
+        username = data.get("username", "")
+        password = data.get("password", "")
+        display_name = data.get("displayName", "")
         recovery_code = str(data.get("recoveryCode", "")).strip()
 
         if len(username) < 3:
@@ -335,10 +341,10 @@ def register():
 @app.route("/api/auth/reset-password", methods=["POST"])
 def reset_password():
     try:
-        data          = request.get_json() or {}
-        username      = data.get("username", "")
+        data = request.get_json() or {}
+        username = data.get("username", "")
         recovery_code = str(data.get("recoveryCode", "")).strip()
-        new_password  = data.get("newPassword", "")
+        new_password = data.get("newPassword", "")
 
         if not username:
             return jsonify({"error": "Username is required"}), 400
@@ -369,7 +375,7 @@ def reset_password():
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     try:
-        data     = request.get_json() or {}
+        data = request.get_json() or {}
         username = data.get("username", "")
         password = data.get("password", "")
 
@@ -477,11 +483,11 @@ def get_chats():
 @auth_required
 def create_chat():
     try:
-        user_id         = request.user_id
-        data            = request.get_json() or {}
-        name            = data.get("name")
+        user_id = request.user_id
+        data = request.get_json() or {}
+        name = data.get("name")
         participant_ids = data.get("participantIds", [])
-        is_group        = data.get("isGroup", False)
+        is_group = data.get("isGroup", False)
 
         if not participant_ids or not isinstance(participant_ids, list):
             return jsonify({"error": "At least one participant is required"}), 400
@@ -518,7 +524,8 @@ def delete_chat(chat_id):
         user_id = request.user_id
         db = SessionLocal()
         try:
-            cp = db.query(ChatParticipant).filter_by(chat_id=chat_id, user_id=user_id).first()
+            cp = db.query(ChatParticipant).filter_by(
+                chat_id=chat_id, user_id=user_id).first()
             if cp:
                 chat = db.query(Chat).filter_by(id=chat_id).first()
                 if chat:
@@ -558,9 +565,9 @@ def get_messages(chat_id):
 @auth_required
 def create_message(chat_id):
     try:
-        user_id           = request.user_id
-        data              = request.get_json() or {}
-        content           = data.get("content", "").strip()
+        user_id = request.user_id
+        data = request.get_json() or {}
+        content = data.get("content", "").strip()
         encrypted_content = data.get("encryptedContent")
 
         if not content:
@@ -618,7 +625,7 @@ def mark_read(chat_id):
 def search_users():
     try:
         user_id = request.user_id
-        query   = request.args.get("q", "").lower()
+        query = request.args.get("q", "").lower()
         db = SessionLocal()
         try:
             pattern = f"%{query}%"
