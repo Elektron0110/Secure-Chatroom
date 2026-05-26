@@ -10,7 +10,7 @@
 1. [Общая схема](#1-общая-схема)
 2. [База данных (SQLAlchemy + SQLite)](#2-база-данных-sqlalchemy--sqlite)
 3. [Серверная часть (server/app.py)](#3-серверная-часть-serverapppy)
-4. [Фронтенд (server/templates/index.html)](#4-фронтенд-servertemplatesindexhtml)
+4. [Фронтенд](#4-фронтенд)
 5. [Аутентификация](#5-аутентификация)
 6. [WebSocket и реальное время](#6-websocket-и-реальное-время)
 7. [Жизненный цикл запроса](#7-жизненный-цикл-запроса)
@@ -79,9 +79,16 @@ def enable_foreign_keys(dbapi_conn, _):
 ```python
 def init_db():
     Base.metadata.create_all(engine)
+    # Автоматическая миграция: добавить recovery_code если столбца нет
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
+            conn.commit()
+        except Exception:
+            pass  # уже существует
 ```
 
-Вызывается один раз при старте. Создаёт все таблицы, если они не существуют.
+Вызывается один раз при старте.
 
 ### Паттерн сессии на запрос
 
@@ -94,8 +101,6 @@ finally:
     db.close()
 ```
 
-Каждый HTTP-маршрут открывает и закрывает сессию через `try/finally`, чтобы гарантировать освобождение ресурсов.
-
 ---
 
 ### ORM-модели
@@ -105,14 +110,15 @@ finally:
 ```python
 class User(Base):
     __tablename__ = "users"
-    id           = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    username     = Column(String, nullable=False, unique=True)
-    password     = Column(String, nullable=False)       # SHA-256
-    display_name = Column(String, nullable=False)
-    avatar_url   = Column(String)
-    is_online    = Column(Boolean, default=False)
-    last_seen    = Column(DateTime, default=datetime.utcnow)
-    created_at   = Column(DateTime, default=datetime.utcnow)
+    id            = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username      = Column(String, nullable=False, unique=True)
+    password      = Column(String, nullable=False)       # SHA-256
+    recovery_code = Column(String)                       # SHA-256 (8-значный код)
+    display_name  = Column(String, nullable=False)
+    avatar_url    = Column(String)                       # /static/avatars/<uuid>.<ext>
+    is_online     = Column(Boolean, default=False)
+    last_seen     = Column(DateTime)
+    created_at    = Column(DateTime)
 ```
 
 #### `Chat`
@@ -121,11 +127,11 @@ class User(Base):
 class Chat(Base):
     __tablename__ = "chats"
     id         = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    name       = Column(String)                         # None для личных чатов
+    name       = Column(String)                    # None для личных, обязательно для групп
     is_group   = Column(Boolean, default=False)
     avatar_url = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
 
     participants = relationship("ChatParticipant", back_populates="chat", cascade="all, delete-orphan")
     messages     = relationship("Message",         back_populates="chat", cascade="all, delete-orphan")
@@ -139,7 +145,7 @@ class ChatParticipant(Base):
     id        = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     chat_id   = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
     user_id   = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    joined_at = Column(DateTime, default=datetime.utcnow)
+    joined_at = Column(DateTime)
 
     chat = relationship("Chat", back_populates="participants")
     user = relationship("User")
@@ -156,7 +162,7 @@ class Message(Base):
     content           = Column(Text, nullable=False)
     encrypted_content = Column(Text)
     is_read           = Column(Boolean, default=False)
-    created_at        = Column(DateTime, default=datetime.utcnow)
+    created_at        = Column(DateTime)
 
     chat   = relationship("Chat", back_populates="messages")
     sender = relationship("User")
@@ -180,11 +186,14 @@ Index("ix_msg_sender_id", Message.sender_id)
 ### Глобальные объекты
 
 ```python
-app = Flask(__name__)   # Flask-приложение
-sock = Sock(app)        # WebSocket через flask-sock
+STATIC_DIR  = server/static/          # Flask static_folder
+AVATARS_DIR = server/static/avatars/  # загруженные аватары
 
-sessions = {}           # { token: user_id } — активные сессии (в памяти)
-ws_clients = {}         # { user_id: ws } — WebSocket-подключения (в памяти)
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/static')
+sock = Sock(app)
+
+sessions   = {}   # { token: user_id } — активные сессии (в памяти)
+ws_clients = {}   # { user_id: ws }   — WebSocket-подключения (в памяти)
 ```
 
 Оба словаря живут в памяти процесса. При перезапуске сервера все сессии и WS-соединения теряются.
@@ -193,13 +202,13 @@ ws_clients = {}         # { user_id: ws } — WebSocket-подключения (
 
 ### Вспомогательные функции
 
-**`hash_password(password)`** — SHA-256, возвращает hex-строку.
+**`hash_password(password)`** — SHA-256, возвращает hex-строку. Используется и для паролей, и для кодов восстановления.
 
 **`generate_token()`** — `secrets.token_hex(32)`, криптографически стойкий токен.
 
 **`dt_iso(dt)`** — сериализация `datetime` в ISO-строку.
 
-**`user_dict(u)`** — преобразование ORM-объекта `User` в JSON-словарь с camelCase-ключами.
+**`user_dict(u)`** — преобразование ORM-объекта `User` в JSON-словарь с camelCase-ключами (включая `avatarUrl`).
 
 **`message_dict(m)`** — преобразование `Message` (с вложенным `sender`) в JSON-словарь.
 
@@ -234,25 +243,48 @@ ws_clients = {}         # { user_id: ws } — WebSocket-подключения (
 
 ### HTTP-маршруты
 
-| Метод | Путь | Описание |
-|---|---|---|
-| GET | `/` | Отдаёт веб-приложение (index.html) |
-| GET | `/status` | `{"status": "ok"}` |
-| POST | `/api/auth/register` | Регистрация |
-| POST | `/api/auth/login` | Вход |
-| POST | `/api/auth/logout` | Выход |
-| GET | `/api/auth/me` | Профиль текущего пользователя |
-| GET | `/api/chats` | Список чатов |
-| POST | `/api/chats` | Создать чат |
-| DELETE | `/api/chats/<id>` | Удалить чат |
-| GET | `/api/chats/<id>/messages` | Сообщения чата (последние 50) |
-| POST | `/api/chats/<id>/messages` | Отправить сообщение |
-| POST | `/api/chats/<id>/read` | Отметить прочитанными |
-| GET | `/api/users/search?q=...` | Поиск пользователей |
+| Метод | Путь | Auth | Описание |
+|---|---|---|---|
+| GET | `/` | — | Отдаёт веб-приложение (index.html) |
+| GET | `/static/<path>` | — | Статические файлы (CSS, JS, аватары) |
+| GET | `/status` | — | `{"status": "ok"}` |
+| POST | `/api/auth/register` | — | Регистрация |
+| POST | `/api/auth/login` | — | Вход |
+| POST | `/api/auth/logout` | ✓ | Выход |
+| GET | `/api/auth/me` | ✓ | Профиль текущего пользователя |
+| POST | `/api/auth/avatar` | ✓ | Загрузка аватара (multipart) |
+| POST | `/api/auth/reset-password` | — | Сброс пароля через код |
+| GET | `/api/chats` | ✓ | Список чатов пользователя |
+| POST | `/api/chats` | ✓ | Создать личный или групповой чат |
+| DELETE | `/api/chats/<id>` | ✓ | Удалить чат |
+| GET | `/api/chats/<id>/messages` | ✓ | Сообщения (последние 50) |
+| POST | `/api/chats/<id>/messages` | ✓ | Отправить сообщение |
+| POST | `/api/chats/<id>/read` | ✓ | Отметить как прочитанные |
+| DELETE | `/api/messages/<id>` | ✓ | Удалить сообщение (только отправитель) |
+| GET | `/api/users/search?q=...` | ✓ | Поиск пользователей |
+| WS | `/ws?token=<token>` | — | WebSocket |
 
 ---
 
 ### Детали ключевых маршрутов
+
+**`POST /api/auth/avatar`**
+
+Принимает `multipart/form-data` с полем `avatar`. Сохраняет файл в `server/static/avatars/<user_id>.<ext>`, обновляет `user.avatar_url` в БД. Возвращает `{ avatarUrl, user }`.
+
+**`DELETE /api/messages/<msg_id>`**
+
+Проверяет, что `msg.sender_id == request.user_id`. Удаляет из БД. Рассылает всем участникам чата через WebSocket:
+```json
+{ "type": "delete_message", "chatId": "...", "messageId": "..." }
+```
+
+**`POST /api/chats`**
+
+```python
+{ "participantIds": ["uid1", "uid2"], "name": "Название", "isGroup": true }
+```
+Для личных чатов `name=null`, `isGroup=false`. Создатель автоматически добавляется в `all_ids = set([user_id] + participantIds)`.
 
 **`GET /api/chats`**
 
@@ -262,27 +294,7 @@ chats = db.query(Chat).filter(Chat.id.in_(chat_ids)).order_by(Chat.updated_at.de
 return [chat_dict(c, user_id, db) for c in chats]
 ```
 
-**`POST /api/chats/<id>/messages`**
-
-```python
-msg = Message(chat_id=chat_id, sender_id=user_id, content=content)
-db.add(msg)
-chat.updated_at = datetime.utcnow()
-db.commit()
-broadcast_to_chat(chat_id, message_dict(msg), exclude_user_id=user_id)
-```
-
-**`GET /api/users/search`**
-
-```python
-pattern = f"%{query.lower()}%"
-users = db.query(User).filter(
-    User.id != user_id,
-    func.lower(User.username).like(pattern) | func.lower(User.display_name).like(pattern)
-).limit(20).all()
-```
-
-**`WebSocket /ws`**
+**WebSocket `/ws`**
 
 ```python
 @sock.route("/ws")
@@ -292,58 +304,115 @@ def websocket_handler(ws):
     user.is_online = True
     while True:
         data = ws.receive()  # блокирующее ожидание
-        # обработка ping и других событий
+        msg = json.loads(data)
+        if msg.get("type") == "ping":
+            ws.send(json.dumps({"type": "pong"}))
     # при отключении: is_online = False, last_seen = now
 ```
 
 ---
 
-## 4. Фронтенд (server/templates/index.html)
+## 4. Фронтенд
 
 Одностраничное приложение (SPA) на чистом HTML5 + CSS3 + Vanilla JavaScript. Никаких npm-пакетов, никаких фреймворков.
+
+### Структура файлов
+
+```
+server/
+├── templates/
+│   └── index.html       # HTML-структура (только разметка)
+└── static/
+    ├── style.css         # Все CSS-стили
+    ├── app.js            # Весь клиентский JavaScript
+    └── avatars/          # Аватары пользователей
+        └── <uuid>.png
+```
+
+`index.html` ссылается на внешние файлы:
+```html
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js"></script>
+```
 
 ### Структура HTML
 
 ```
 body
 ├── #auth           — экраны аутентификации
-│   ├── #login-view   — форма входа
-│   └── #register-view — форма регистрации
+│   ├── #login-view       — форма входа
+│   ├── #register-view    — форма регистрации
+│   └── #reset-view       — форма сброса пароля
 ├── #app            — основное приложение
-│   ├── #sidebar      — список чатов
-│   │   ├── #sidebar-header (логотип, тема)
+│   ├── #sidebar      — боковая панель с чатами
+│   │   ├── #sidebar-header (аватар, название, тема)
 │   │   ├── #search-bar (поиск по чатам)
-│   │   └── #chat-list (список)
+│   │   ├── #chat-list (список)
+│   │   └── .new-chat-btn (кнопка + в левом нижнем углу)
 │   └── #chat-area    — область переписки
-│       ├── #chat-placeholder (заглушка)
-│       └── #chat-view (переписка)
-│           ├── #chat-header
-│           ├── #messages (пузырьки)
-│           └── #input-area (поле ввода)
-├── #new-chat-modal  — модал создания чата
-├── #delete-modal    — подтверждение удаления
-├── #profile-panel   — панель профиля
-└── #toast           — уведомления
+│       ├── #chat-placeholder (заглушка «выберите чат»)
+│       └── #chat-view
+│           ├── #chat-header (назад, аватар, имя, удалить)
+│           ├── #messages (пузырьки с кнопками удаления)
+│           └── #input-area (поле ввода + отправка)
+├── #new-chat-modal     — модал: вкладки Личный / Группа
+├── #delete-modal       — подтверждение удаления чата
+├── #delete-msg-modal   — подтверждение удаления сообщения
+├── #profile-panel      — панель профиля с аватаром
+└── #toast              — всплывающие уведомления
 ```
 
 ### Состояние (JavaScript `state`)
 
 ```javascript
 const state = {
-  user: null,          // данные текущего пользователя
-  token: null,         // Bearer-токен
-  chats: [],           // список чатов
-  currentChatId: null, // открытый чат
-  messages: [],        // сообщения открытого чата
-  ws: null,            // WebSocket-соединение
-  chatPolling: null,   // setInterval для обновления списка чатов
-  msgPolling: null,    // setInterval для обновления сообщений
+  user: null,              // данные текущего пользователя
+  token: null,             // Bearer-токен
+  chats: [],               // список чатов
+  currentChatId: null,     // открытый чат
+  messages: [],            // сообщения открытого чата
+  ws: null,                // WebSocket-соединение
+  chatPolling: null,       // setInterval для обновления чатов
+  msgPolling: null,        // setInterval для обновления сообщений
+  deleteTargetId: null,    // id чата для удаления
+  deleteMsgTargetId: null, // id сообщения для удаления
+  groupMode: false,        // режим создания группы
+  selectedUserIds: new Set(), // выбранные участники группы
 };
 ```
 
 ### Функция `api(method, path, body)`
 
-Универсальная обёртка над `fetch()` с Bearer-токеном в заголовке.
+Универсальная обёртка над `fetch()` с Bearer-токеном в заголовке. `apiForm()` — вариант для `multipart/form-data` (загрузка аватара).
+
+### Загрузка аватара
+
+```javascript
+async function uploadAvatar(file) {
+  const formData = new FormData();
+  formData.append('avatar', file);
+  const data = await apiForm('POST', '/api/auth/avatar', formData);
+  state.user = { ...state.user, avatarUrl: data.avatarUrl };
+  updateAvatarDisplays();
+}
+```
+
+Кнопка — клик по аватару в профиле, открывает скрытый `<input type="file">`.
+
+### Групповые чаты
+
+В модале создания чата — две вкладки: **Личный чат** | **Группа**.  
+В режиме группы:
+- Появляется поле ввода названия
+- Пользователи добавляются в `state.selectedUserIds` через клик (с галочкой)
+- Над списком — бейджи выбранных участников с кнопкой ×
+- Кнопка «Создать группу» — вызывает `createGroupChat(name, [...ids])`
+
+### Удаление сообщений
+
+При наведении на своё сообщение появляется кнопка удаления (иконка корзины).  
+Клик → модал подтверждения → `deleteMessage(msgId)` → `DELETE /api/messages/<id>`.  
+WebSocket-событие `delete_message` удаляет сообщение у всех участников без перезагрузки.
 
 ### WebSocket (клиент)
 
@@ -351,7 +420,11 @@ const state = {
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}/ws?token=${state.token}`);
-  ws.onmessage = (e) => { /* обновить чат или список */ };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'message') { /* новое сообщение */ }
+    if (msg.type === 'delete_message') { /* удалить из DOM */ }
+  };
   ws.onclose = () => { setTimeout(connectWs, 5000); }; // переподключение
 }
 ```
@@ -360,21 +433,21 @@ function connectWs() {
 
 | Экран | Поведение |
 |---|---|
-| Десктоп (> 680px) | Боковая панель (360px) + область чата |
+| Десктоп (> 680px) | Боковая панель 360px + область чата |
 | Мобильный (≤ 680px) | Полноэкранный список ИЛИ полноэкранный чат |
 
-### Темы оформления
-
-Управляется через `data-theme` атрибут на `<html>`. CSS-переменные переключаются через `[data-theme="dark"] { ... }`. Выбор сохраняется в `localStorage`.
+**Исправление мобильного viewport:**  
+Мета-тег `viewport-fit=cover` + `overflow: hidden` на `html` и `body` устраняют проблему, при которой страница рендерилась шире видимой области.
 
 ---
 
 ## 5. Аутентификация
 
 ```
-Вход/Регистрация
+Регистрация: { username, password, displayName, recoveryCode }
   │
   ▼
+Сервер: hash(password), hash(recoveryCode) → сохраняет в User
 Flask генерирует token = secrets.token_hex(32)
 sessions[token] = user_id
   │
@@ -390,28 +463,34 @@ sessions[token] = user_id
   token in sessions → request.user_id = sessions[token]
 ```
 
+**Сброс пароля:** `POST /api/auth/reset-password` — сравнивает `hash(recoveryCode)` с хешом в БД, при совпадении устанавливает новый пароль.
+
 ---
 
 ## 6. WebSocket и реальное время
 
-### Доставка сообщений
+### Доставка нового сообщения
 
 ```
-Пользователь A отправляет сообщение
-  │
-  ▼
-POST /api/chats/<id>/messages
-  │
-  ▼
-db.add(Message(...))
-chat.updated_at = datetime.utcnow()
-db.commit()
-  │
-  ▼
-broadcast_to_chat(chat_id, message_data)
-  │
-  ├── ws_clients[user_B].send(JSON)  → Пользователь B получает мгновенно
-  └── ws_clients[user_C].send(JSON)  → Пользователь C получает мгновенно
+Пользователь A → POST /api/chats/<id>/messages
+  ↓
+db.add(Message) + chat.updated_at = now()
+  ↓
+broadcast_to_chat(chat_id, data, exclude_user_id=A)
+  ├── ws_clients[B].send({"type":"message","chatId":...,"data":{...}})
+  └── ws_clients[C].send(...)
+```
+
+### Удаление сообщения
+
+```
+Пользователь A → DELETE /api/messages/<msg_id>
+  ↓
+Проверка sender_id == A
+db.delete(msg)
+  ↓
+Для всех ws_clients:
+  ws.send({"type":"delete_message","chatId":...,"messageId":...})
 ```
 
 ### Резервный polling
@@ -431,9 +510,9 @@ broadcast_to_chat(chat_id, message_data)
 Клик по чату в списке
   ↓
 openChat(chatId)
-  ├── renderChatHeader() — показать имя и статус
+  ├── renderChatHeader() — показать имя/аватар, статус участников
   ├── GET /api/chats/<id>/messages
-  ├── renderMessages() — отрисовка пузырьков
+  ├── renderMessages() — отрисовка пузырьков с кнопками удаления
   ├── scrollMessages() — прокрутка вниз
   └── POST /api/chats/<id>/read — отметить как прочитанные
 ```
@@ -453,9 +532,26 @@ sendMessage()
 
 ```
 ws.onmessage → msg = JSON.parse(event.data)
-  ├── Если msg.chatId === currentChatId:
+  ├── type === 'message':
   │     appendMessage() + scrollMessages() + markRead()
-  └── loadChats() — обновить список чатов
+  │     loadChats()
+  └── type === 'delete_message':
+        удалить элемент из DOM по data-msg-id
+        loadChats()
+```
+
+### Загрузка аватара
+
+```
+Клик на аватар в профиле
+  ↓
+<input type="file"> → пользователь выбирает файл
+  ↓
+uploadAvatar(file)
+  ├── POST /api/auth/avatar (multipart)
+  ├── Сервер сохраняет файл в static/avatars/<uuid>.<ext>
+  ├── Обновляет user.avatar_url в БД
+  └── Клиент обновляет все отображения аватара (сайдбар, профиль, заголовки чатов)
 ```
 
 ---

@@ -23,8 +23,12 @@ messenger/
 ├── server/
 │   ├── app.py                  # Весь бэкенд: API, WebSocket, ORM-модели
 │   ├── index.ts                # Node.js-обёртка для запуска через Replit
+│   ├── static/
+│   │   ├── style.css           # Все стили приложения
+│   │   ├── app.js              # Весь клиентский JavaScript
+│   │   └── avatars/            # Загруженные аватары пользователей
 │   └── templates/
-│       └── index.html          # SPA-приложение (HTML + CSS + JS)
+│       └── index.html          # SPA-шаблон (только HTML-структура)
 ```
 
 ## Быстрый старт
@@ -57,18 +61,26 @@ npm run server:dev
 
 | Метод | Путь | Описание |
 |---|---|---|
-| POST | `/api/auth/register` | Регистрация нового пользователя |
+| POST | `/api/auth/register` | Регистрация (username, password, displayName, recoveryCode) |
 | POST | `/api/auth/login` | Вход |
 | POST | `/api/auth/logout` | Выход |
 | GET | `/api/auth/me` | Данные текущего пользователя |
+| POST | `/api/auth/avatar` | Загрузка аватара (multipart/form-data, поле `avatar`) |
+| POST | `/api/auth/reset-password` | Сброс пароля через код восстановления |
 
 ### Чаты
 
 | Метод | Путь | Описание |
 |---|---|---|
 | GET | `/api/chats` | Список чатов (с превью и счётчиком непрочитанных) |
-| POST | `/api/chats` | Создать чат |
+| POST | `/api/chats` | Создать личный или групповой чат |
 | DELETE | `/api/chats/<id>` | Удалить чат |
+
+**Создание чата** `POST /api/chats`:
+```json
+{ "participantIds": ["uid1"], "name": null, "isGroup": false }
+```
+Для группового чата: `"isGroup": true` и обязательное `"name"`.
 
 ### Сообщения
 
@@ -77,6 +89,7 @@ npm run server:dev
 | GET | `/api/chats/<id>/messages` | Последние 50 сообщений чата |
 | POST | `/api/chats/<id>/messages` | Отправить сообщение |
 | POST | `/api/chats/<id>/read` | Отметить как прочитанные |
+| DELETE | `/api/messages/<msg_id>` | Удалить сообщение (только отправитель) |
 
 ### Пользователи и WebSocket
 
@@ -85,6 +98,11 @@ npm run server:dev
 | GET | `/api/users/search?q=...` | Поиск пользователей (LIKE) |
 | GET | `/status` | Статус сервера |
 | WS | `/ws?token=<token>` | WebSocket-соединение реального времени |
+
+**Типы WebSocket-сообщений от сервера:**
+- `{"type":"message","chatId":"...","data":{...}}` — новое сообщение
+- `{"type":"delete_message","chatId":"...","messageId":"..."}` — удаление сообщения
+- `{"type":"pong"}` — ответ на ping
 
 ## Схема базы данных (SQLAlchemy ORM)
 
@@ -95,8 +113,9 @@ npm run server:dev
 | id | String (UUID) | Первичный ключ, генерируется в Python |
 | username | String, UNIQUE | Логин |
 | password | String | SHA-256 хеш |
+| recovery_code | String | SHA-256 хеш 8-значного кода для сброса пароля |
 | display_name | String | Отображаемое имя |
-| avatar_url | String | URL аватара |
+| avatar_url | String | Путь к файлу аватара (`/static/avatars/<uuid>.<ext>`) |
 | is_online | Boolean | Онлайн-статус |
 | last_seen | DateTime | Последний визит |
 | created_at | DateTime | Дата регистрации |
@@ -106,9 +125,9 @@ npm run server:dev
 | Поле | Тип SQLAlchemy | Описание |
 |---|---|---|
 | id | String (UUID) | Первичный ключ |
-| name | String | Название (только для групповых) |
+| name | String | Название (обязательно для групповых) |
 | is_group | Boolean | Групповой чат |
-| avatar_url | String | URL аватара |
+| avatar_url | String | URL аватара группы |
 | created_at | DateTime | Дата создания |
 | updated_at | DateTime | Время последнего сообщения |
 
@@ -150,9 +169,13 @@ dependencies = [
 ## Возможности
 
 - Регистрация и вход пользователей
+- Сброс пароля через 8-значный код восстановления
+- Загрузка и отображение аватара пользователя
 - Поиск пользователей и создание личных чатов
+- Создание групповых чатов с произвольным числом участников
 - Список чатов с превью последнего сообщения
 - Обмен сообщениями в реальном времени (WebSocket + резервный polling)
+- Выборочное удаление своих сообщений (с уведомлением всех участников через WS)
 - Индикаторы онлайн-статуса
 - Счётчики непрочитанных сообщений
 - Удаление чатов
@@ -162,11 +185,14 @@ dependencies = [
 ## Архитектурные особенности
 
 - **SQLite + SQLAlchemy ORM** — база данных хранится в файле `messenger.db`. Таблицы создаются автоматически через `Base.metadata.create_all()`. Внешние ключи с CASCADE включены через `PRAGMA foreign_keys=ON`.
+- **Статические файлы** — CSS и JS вынесены в `server/static/`. Flask раздаёт их по маршруту `/static/`. Аватары сохраняются в `server/static/avatars/<user_id>.<ext>`.
+- **Разделение фронтенда** — `index.html` содержит только HTML-структуру, `style.css` — все стили, `app.js` — весь клиентский код.
 - **Сессия на запрос** — каждый HTTP-запрос открывает и закрывает `SessionLocal()` через `try/finally`.
 - **UUID в Python** — идентификаторы генерируются через `uuid.uuid4()`, а не на стороне БД.
 - **Сессии в памяти** — `sessions = {}` хранит токены. При перезапуске сервера все пользователи выходят из системы.
 - **WebSocket-клиенты в памяти** — `ws_clients = {}`. При перезапуске соединения рвутся, клиент переподключается автоматически.
 - **Пароли** — SHA-256. Достаточно для прототипа; для продакшна рекомендуется bcrypt.
+- **Мобильный viewport** — мета-тег `viewport-fit=cover` + `overflow: hidden` на `html/body` предотвращают выход контента за пределы экрана.
 
 ## Подробная документация
 

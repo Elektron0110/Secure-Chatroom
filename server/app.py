@@ -8,7 +8,7 @@ import sqlite3
 import datetime
 from functools import wraps
 
-from flask import Flask, request, jsonify, make_response, render_template
+from flask import Flask, request, jsonify, make_response, render_template, send_from_directory
 from flask_sock import Sock
 from sqlalchemy import (
     create_engine, Column, String, Boolean, DateTime, Text,
@@ -20,7 +20,12 @@ from sqlalchemy.engine import Engine
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+AVATARS_DIR = os.path.join(STATIC_DIR, 'avatars')
+os.makedirs(AVATARS_DIR, exist_ok=True)
+
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/static')
 sock = Sock(app)
 
 sessions = {}
@@ -28,7 +33,6 @@ ws_clients = {}
 
 # ─── База данных (SQLite + SQLAlchemy) ────────────────────────────────────────
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "messenger.db")
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
@@ -620,6 +624,81 @@ def mark_read(chat_id):
         return jsonify({"error": "Internal server error"}), 500
 
 
+@app.route("/api/auth/avatar", methods=["POST"])
+@auth_required
+def upload_avatar():
+    try:
+        user_id = request.user_id
+        if 'avatar' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        file = request.files['avatar']
+        if not file or not file.filename:
+            return jsonify({"error": "Invalid file"}), 400
+        content_type = file.content_type or ''
+        if not content_type.startswith('image/'):
+            return jsonify({"error": "File must be an image"}), 400
+        ext = 'jpg'
+        if 'png' in content_type:
+            ext = 'png'
+        elif 'gif' in content_type:
+            ext = 'gif'
+        elif 'webp' in content_type:
+            ext = 'webp'
+        filename = f"{user_id}.{ext}"
+        filepath = os.path.join(AVATARS_DIR, filename)
+        file.save(filepath)
+        avatar_url = f"/static/avatars/{filename}"
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter_by(id=user_id).first()
+            if not user:
+                return jsonify({"error": "User not found"}), 404
+            user.avatar_url = avatar_url
+            db.commit()
+            return jsonify({"avatarUrl": avatar_url, "user": user_dict(user)})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("Avatar upload error: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/messages/<msg_id>", methods=["DELETE"])
+@auth_required
+def delete_message(msg_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            msg = db.query(Message).filter_by(id=msg_id).first()
+            if not msg:
+                return jsonify({"error": "Message not found"}), 404
+            if msg.sender_id != user_id:
+                return jsonify({"error": "Access denied"}), 403
+            chat_id = msg.chat_id
+            db.delete(msg)
+            db.commit()
+            payload = json.dumps({
+                "type": "delete_message",
+                "chatId": chat_id,
+                "messageId": msg_id,
+            })
+            disconnected = []
+            for uid, ws in ws_clients.items():
+                try:
+                    ws.send(payload)
+                except Exception:
+                    disconnected.append(uid)
+            for uid in disconnected:
+                ws_clients.pop(uid, None)
+            return jsonify({"success": True})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("Delete message error: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
+
+
 @app.route("/api/users/search", methods=["GET"])
 @auth_required
 def search_users():
@@ -688,7 +767,7 @@ def websocket_handler(ws):
             user = db.query(User).filter_by(id=user_id).first()
             if user:
                 user.is_online = False
-                user.last_seen = datetime.datetime.now(datetime.UTC)()
+                user.last_seen = datetime.datetime.now(datetime.UTC)
                 db.commit()
         finally:
             db.close()
