@@ -275,9 +275,7 @@ def setup_cors():
         logging.log(
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {
                 request.headers.get("x-real-ip")
-            }  "{request.method} {request.path}"  {response.status[:3]}  {
-                get_me().username
-            }'
+            }  "{request.method} {request.path}"  {response.status[:3]}'
         )
         return response
 
