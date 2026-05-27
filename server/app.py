@@ -103,8 +103,10 @@ class Chat(Base):
 class ChatParticipant(Base):
     __tablename__ = "chat_participants"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    chat_id = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    chat_id = Column(String, ForeignKey(
+        "chats.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False)
     joined_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
     chat = relationship("Chat", back_populates="participants")
@@ -114,7 +116,8 @@ class ChatParticipant(Base):
 class Message(Base):
     __tablename__ = "messages"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    chat_id = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    chat_id = Column(String, ForeignKey(
+        "chats.id", ondelete="CASCADE"), nullable=False)
     sender_id = Column(
         String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -138,7 +141,8 @@ def init_db():
     # Миграция: добавить столбец recovery_code если ещё нет
     with engine.connect() as conn:
         try:
-            conn.execute(text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
             conn.commit()
             logger.log(
                 f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Migration: added recovery_code column"'
@@ -273,9 +277,7 @@ def setup_cors():
             response.headers["Access-Control-Allow-Credentials"] = "true"
 
         logging.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {
-                request.headers.get("x-real-ip")
-            }  "{request.method} {request.path}"  {response.status[:3]}'
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {request.headers.get("x-real-ip")}  "{request.method} {request.path}"  {response.status[:3]}'
         )
         return response
 
@@ -303,7 +305,8 @@ def setup_cors():
 
 
 def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
-    payload = json.dumps({"type": "message", "chatId": chat_id, "data": message_data})
+    payload = json.dumps(
+        {"type": "message", "chatId": chat_id, "data": message_data})
     disconnected = []
     for uid, ws in ws_clients.items():
         if exclude_user_id and uid == exclude_user_id:
@@ -706,9 +709,11 @@ def update_profile():
         user_id = request.user_id
         data = request.get_json() or {}
         new_display_name = (
-            data.get("displayName", "").strip() if "displayName" in data else None
+            data.get("displayName", "").strip(
+            ) if "displayName" in data else None
         )
-        new_username = data.get("username", "").strip() if "username" in data else None
+        new_username = data.get("username", "").strip(
+        ) if "username" in data else None
 
         if new_display_name is not None and not new_display_name:
             return jsonify({"error": "Имя не может быть пустым"}), 400
