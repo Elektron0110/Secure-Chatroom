@@ -832,11 +832,22 @@ function setupEvents() {
     const p = qs('#reg-password').value;
     const rc = qs('#reg-recovery').value.trim();
     const errEl = qs('#register-error');
+    const usernameInput = qs('#reg-username');
+
     errEl.style.display = 'none';
+
+    // Проверяем, проходит ли значение валидацию по pattern
+    if (!usernameInput.validity.valid) {
+      errEl.textContent = 'Имя пользователя: только латинские буквы, цифры и подчёркивание';
+      errEl.style.display = 'block';
+      return; // Прерываем выполнение, если невалидно
+    }
+
     if (!name || !u || !p || !rc) { errEl.textContent = 'Заполните все поля'; errEl.style.display = 'block'; return; }
     if (u.length < 3) { errEl.textContent = 'Имя пользователя: минимум 3 символа'; errEl.style.display = 'block'; return; }
     if (p.length < 6) { errEl.textContent = 'Пароль: минимум 6 символов'; errEl.style.display = 'block'; return; }
     if (!/^\d{8}$/.test(rc)) { errEl.textContent = 'Код восстановления: ровно 8 цифр'; errEl.style.display = 'block'; return; }
+
     qs('#register-btn').disabled = true;
     try {
       await register(u, p, name, rc);
@@ -881,6 +892,22 @@ function setupEvents() {
   [qs('#login-username'), qs('#login-password')].forEach(el => {
     el.addEventListener('keydown', e => { if (e.key === 'Enter') qs('#login-btn').click(); });
   });
+
+  // --- НОВЫЙ КОД: Валидация пароля при вводе ---
+  qs('#reg-password').addEventListener('input', function(e) {
+      const validRegex = /^[a-zA-Z0-9!@#$%^&*(),.?":{}|<>[\]\\;'`~\-=_+]*$/; // Только разрешенные символы
+      let value = e.target.value;
+
+      // Проверяем, соответствует ли текущее значение регулярному выражению
+      if (!validRegex.test(value)) {
+          // Если нет, очищаем строку от недопустимых символов
+          const cleanedValue = value.replace(/[^a-zA-Z0-9!@#$%^&*(),.?":{}|<>[\]\\;'`~\-=_+]/g, '');
+          e.target.value = cleanedValue;
+          // Опционально: показать краткое сообщение пользователю
+          // showToast("Пароль содержит недопустимые символы. Они были удалены.", 2000);
+      }
+  });
+  // --- КОНЕЦ НОВОГО КОДА ---
 
   // Search chats
   qs('#search-input').addEventListener('input', () => renderChatList());
