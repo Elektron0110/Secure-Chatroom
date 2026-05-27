@@ -130,7 +130,7 @@ def init_db():
                 text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
             conn.commit()
             logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Migration: added recovery_code column"')
+                f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Migration: added recovery_code column"')
         except Exception:
             pass  # Столбец уже существует
     logger.log(
@@ -251,8 +251,8 @@ def setup_cors():
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
             response.headers["Access-Control-Allow-Credentials"] = "true"
-        
-        logging.log(f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {request.headers.get('x-real-ip')}  "{ \
+
+        logging.log(f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {request.headers.get('x-real-ip')}  "{
             request.method} {request.path}"  {response.status[:3]}  {get_me().username}')
         return response
 
@@ -348,7 +348,7 @@ def register():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Register error: {e}')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Register error: {e}')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -383,7 +383,7 @@ def reset_password():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Reset password error: {e}')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Reset password error: {e}')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -427,7 +427,7 @@ def login():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Login error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Login error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -464,7 +464,7 @@ def get_me():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get me error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get me error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -493,7 +493,7 @@ def get_chats():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get chats error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get chats error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -532,7 +532,7 @@ def create_chat():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create chat error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create chat error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -555,7 +555,7 @@ def delete_chat(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete chat error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete chat error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -578,7 +578,7 @@ def get_messages(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get messages error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get messages error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -619,7 +619,7 @@ def create_message(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create message error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create message error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -639,7 +639,7 @@ def mark_read(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Mark read error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Mark read error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -649,8 +649,10 @@ def update_profile():
     try:
         user_id = request.user_id
         data = request.get_json() or {}
-        new_display_name = data.get("displayName", "").strip() if "displayName" in data else None
-        new_username = data.get("username", "").strip() if "username" in data else None
+        new_display_name = data.get(
+            "displayName", "").strip() if "displayName" in data else None
+        new_username = data.get("username", "").strip(
+        ) if "username" in data else None
 
         if new_display_name is not None and not new_display_name:
             return jsonify({"error": "Имя не может быть пустым"}), 400
@@ -677,7 +679,7 @@ def update_profile():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Update profile error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Update profile error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -717,7 +719,7 @@ def upload_avatar():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Avatar upload error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Avatar upload error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -754,7 +756,7 @@ def delete_message(msg_id):
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete message error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete message error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -782,7 +784,7 @@ def search_users():
             db.close()
     except Exception as e:
         logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Search users error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Search users error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
