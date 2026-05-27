@@ -21,9 +21,6 @@ from sqlalchemy.engine import Engine
 logging = Log(r'server\Messager.log')
 logger = Log(r'server\Server.log')
 
-# logging.basicConfig(level=logging.INFO)
-# logger = logging.getLogger(__name__)
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 AVATARS_DIR = os.path.join(STATIC_DIR, 'avatars')
