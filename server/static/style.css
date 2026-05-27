@@ -1329,7 +1329,6 @@ a {
   }
 
   #sidebar.hidden-mobile {
-    transform: translateX(-100%);
   }
 
   #chat-area {
@@ -1341,7 +1340,7 @@ a {
   }
 
   #chat-area.hidden-mobile {
-    transform: translateX(100%);
+    display: none;
   }
 
   #chat-header .back-btn {
