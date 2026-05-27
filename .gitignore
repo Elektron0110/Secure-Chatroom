@@ -38,6 +38,8 @@ yarn-error.*
 
 app-example
 *.db
+__pycache__
+*.log
 
 # generated native folders
 /ios
