@@ -4,10 +4,10 @@ import json
 import uuid
 import hashlib
 import secrets
-import logging
 import sqlite3
 import datetime
 from functools import wraps
+from my_lib import Log
 
 from flask import Flask, request, jsonify, make_response, render_template, send_from_directory
 from flask_sock import Sock
@@ -18,8 +18,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.engine import Engine
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logging = Log(r'server\Messager.log')
+logger = Log(r'server\Server.log')
+
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
@@ -126,10 +129,12 @@ def init_db():
             conn.execute(
                 text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
             conn.commit()
-            logger.info("Migration: added recovery_code column")
+            logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Migration: added recovery_code column"')
         except Exception:
             pass  # Столбец уже существует
-    logger.info("Database initialized: %s", DB_PATH)
+    logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Database initialized: {DB_PATH}"')
 
 
 # ─── Вспомогательные функции ──────────────────────────────────────────────────
@@ -246,6 +251,9 @@ def setup_cors():
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
             response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        logging.log(f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {request.headers.get('x-real-ip')}  "{ \
+            request.method} {request.path}"  {response.status[:3]}  {get_me().username}')
         return response
 
     @app.before_request
@@ -339,7 +347,8 @@ def register():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Register error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Register error: {e}')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -373,7 +382,8 @@ def reset_password():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Reset password error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Reset password error: {e}')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -416,7 +426,8 @@ def login():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Login error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Login error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -452,7 +463,8 @@ def get_me():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Get me error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get me error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -480,7 +492,8 @@ def get_chats():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Get chats error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get chats error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -518,7 +531,8 @@ def create_chat():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Create chat error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create chat error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -540,7 +554,8 @@ def delete_chat(chat_id):
         finally:
             db.close()
     except Exception as e:
-        logger.error("Delete chat error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete chat error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -562,7 +577,8 @@ def get_messages(chat_id):
         finally:
             db.close()
     except Exception as e:
-        logger.error("Get messages error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get messages error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -602,7 +618,8 @@ def create_message(chat_id):
         finally:
             db.close()
     except Exception as e:
-        logger.error("Create message error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create message error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -621,7 +638,8 @@ def mark_read(chat_id):
         finally:
             db.close()
     except Exception as e:
-        logger.error("Mark read error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Mark read error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -658,7 +676,8 @@ def update_profile():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Update profile error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Update profile error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -697,7 +716,8 @@ def upload_avatar():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Avatar upload error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Avatar upload error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -733,7 +753,8 @@ def delete_message(msg_id):
         finally:
             db.close()
     except Exception as e:
-        logger.error("Delete message error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete message error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -760,7 +781,8 @@ def search_users():
         finally:
             db.close()
     except Exception as e:
-        logger.error("Search users error: %s", e)
+        logger.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Search users error: {e}"')
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -817,6 +839,8 @@ setup_cors()
 init_db()
 
 if __name__ == "__main__":
+    logging.log(
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  "Server restarted."')
     if os.path.isdir('C:'):
         app.run(host="127.0.0.1", port=1111, debug=True)
     else:
