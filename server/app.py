@@ -9,24 +9,40 @@ import datetime
 from functools import wraps
 from my_lib import Log
 
-from flask import Flask, request, jsonify, make_response, render_template, send_from_directory
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    make_response,
+    render_template,
+    send_from_directory,
+)
 from flask_sock import Sock
 from sqlalchemy import (
-    create_engine, Column, String, Boolean, DateTime, Text,
-    ForeignKey, func, Index, event, text,
+    create_engine,
+    Column,
+    String,
+    Boolean,
+    DateTime,
+    Text,
+    ForeignKey,
+    func,
+    Index,
+    event,
+    text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.engine import Engine
 
-logging = Log(r'server\Messager.log')
-logger = Log(r'server\Server.log')
+logging = Log(r"server\Messager.log")
+logger = Log(r"server\Server.log")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-AVATARS_DIR = os.path.join(STATIC_DIR, 'avatars')
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+AVATARS_DIR = os.path.join(STATIC_DIR, "avatars")
 os.makedirs(AVATARS_DIR, exist_ok=True)
 
-app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/static')
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 sock = Sock(app)
 
 sessions = {}
@@ -52,6 +68,7 @@ def enable_foreign_keys(dbapi_conn, _):
 
 
 # ─── Модели ───────────────────────────────────────────────────────────────────
+
 
 class User(Base):
     __tablename__ = "users"
@@ -86,10 +103,8 @@ class Chat(Base):
 class ChatParticipant(Base):
     __tablename__ = "chat_participants"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    chat_id = Column(String, ForeignKey(
-        "chats.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(String, ForeignKey(
-        "users.id", ondelete="CASCADE"), nullable=False)
+    chat_id = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     joined_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
     chat = relationship("Chat", back_populates="participants")
@@ -99,10 +114,10 @@ class ChatParticipant(Base):
 class Message(Base):
     __tablename__ = "messages"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    chat_id = Column(String, ForeignKey(
-        "chats.id", ondelete="CASCADE"), nullable=False)
-    sender_id = Column(String, ForeignKey(
-        "users.id", ondelete="CASCADE"), nullable=False)
+    chat_id = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    sender_id = Column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     content = Column(Text, nullable=False)
     encrypted_content = Column(Text)
     is_read = Column(Boolean, default=False)
@@ -112,9 +127,9 @@ class Message(Base):
     sender = relationship("User")
 
 
-Index("ix_cp_chat_id",    ChatParticipant.chat_id)
-Index("ix_cp_user_id",    ChatParticipant.user_id)
-Index("ix_msg_chat_id",   Message.chat_id)
+Index("ix_cp_chat_id", ChatParticipant.chat_id)
+Index("ix_cp_user_id", ChatParticipant.user_id)
+Index("ix_msg_chat_id", Message.chat_id)
 Index("ix_msg_sender_id", Message.sender_id)
 
 
@@ -123,18 +138,20 @@ def init_db():
     # Миграция: добавить столбец recovery_code если ещё нет
     with engine.connect() as conn:
         try:
-            conn.execute(
-                text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN recovery_code VARCHAR"))
             conn.commit()
             logger.log(
-                f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Migration: added recovery_code column"')
+                f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Migration: added recovery_code column"'
+            )
         except Exception:
             pass  # Столбец уже существует
     logger.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Database initialized: {DB_PATH}"')
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Database initialized: {DB_PATH}"'
+    )
 
 
 # ─── Вспомогательные функции ──────────────────────────────────────────────────
+
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -207,6 +224,7 @@ def chat_dict(chat, current_user_id, db):
 
 # ─── Auth декоратор ───────────────────────────────────────────────────────────
 
+
 def auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -221,10 +239,12 @@ def auth_required(f):
         request.user_id = sessions[token]
         request.token = token
         return f(*args, **kwargs)
+
     return decorated
 
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
+
 
 def setup_cors():
     origins = set()
@@ -239,18 +259,26 @@ def setup_cors():
     @app.after_request
     def add_cors_headers(response):
         origin = request.headers.get("Origin", "")
-        is_local = (
-            origin.startswith("http://localhost:")
-            or origin.startswith("http://127.0.0.1:")
+        is_local = origin.startswith("http://localhost:") or origin.startswith(
+            "http://127.0.0.1:"
         )
         if origin and (origin in origins or is_local):
             response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response.headers["Access-Control-Allow-Methods"] = (
+                "GET, POST, PUT, DELETE, OPTIONS"
+            )
+            response.headers["Access-Control-Allow-Headers"] = (
+                "Content-Type, Authorization"
+            )
             response.headers["Access-Control-Allow-Credentials"] = "true"
 
-        logging.log(f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {request.headers.get('x-real-ip')}  "{
-            request.method} {request.path}"  {response.status[:3]}  {get_me().username}')
+        logging.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {
+                request.headers.get("x-real-ip")
+            }  "{request.method} {request.path}"  {response.status[:3]}  {
+                get_me().username
+            }'
+        )
         return response
 
     @app.before_request
@@ -258,23 +286,26 @@ def setup_cors():
         if request.method == "OPTIONS":
             resp = make_response()
             origin = request.headers.get("Origin", "")
-            is_local = (
-                origin.startswith("http://localhost:")
-                or origin.startswith("http://127.0.0.1:")
+            is_local = origin.startswith("http://localhost:") or origin.startswith(
+                "http://127.0.0.1:"
             )
             if origin and (origin in origins or is_local):
                 resp.headers["Access-Control-Allow-Origin"] = origin
-                resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-                resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+                resp.headers["Access-Control-Allow-Methods"] = (
+                    "GET, POST, PUT, DELETE, OPTIONS"
+                )
+                resp.headers["Access-Control-Allow-Headers"] = (
+                    "Content-Type, Authorization"
+                )
                 resp.headers["Access-Control-Allow-Credentials"] = "true"
             return resp
 
 
 # ─── WebSocket broadcast ──────────────────────────────────────────────────────
 
+
 def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
-    payload = json.dumps(
-        {"type": "message", "chatId": chat_id, "data": message_data})
+    payload = json.dumps({"type": "message", "chatId": chat_id, "data": message_data})
     disconnected = []
     for uid, ws in ws_clients.items():
         if exclude_user_id and uid == exclude_user_id:
@@ -288,6 +319,7 @@ def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
 
 
 # ─── Маршруты ─────────────────────────────────────────────────────────────────
+
 
 @app.route("/", methods=["GET"])
 def index():
@@ -335,17 +367,26 @@ def register():
             token = generate_token()
             sessions[token] = user.id
 
-            resp = make_response(jsonify({
-                "user": {"id": user.id, "username": user.username, "displayName": user.display_name},
-                "token": token,
-            }))
+            resp = make_response(
+                jsonify(
+                    {
+                        "user": {
+                            "id": user.id,
+                            "username": user.username,
+                            "displayName": user.display_name,
+                        },
+                        "token": token,
+                    }
+                )
+            )
             resp.set_cookie("token", token, httponly=True, samesite="Lax")
             return resp
         finally:
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Register error: {e}')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Register error: {e}'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -368,7 +409,9 @@ def reset_password():
         try:
             user = db.query(User).filter_by(username=username).first()
             if not user or not user.recovery_code:
-                return jsonify({"error": "User not found or recovery code not set"}), 400
+                return jsonify(
+                    {"error": "User not found or recovery code not set"}
+                ), 400
             if user.recovery_code != hash_password(recovery_code):
                 return jsonify({"error": "Invalid recovery code"}), 400
 
@@ -380,7 +423,8 @@ def reset_password():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Reset password error: {e}')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Reset password error: {e}'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -409,22 +453,27 @@ def login():
             token = generate_token()
             sessions[token] = user.id
 
-            resp = make_response(jsonify({
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "displayName": user.display_name,
-                    "avatarUrl": user.avatar_url,
-                },
-                "token": token,
-            }))
+            resp = make_response(
+                jsonify(
+                    {
+                        "user": {
+                            "id": user.id,
+                            "username": user.username,
+                            "displayName": user.display_name,
+                            "avatarUrl": user.avatar_url,
+                        },
+                        "token": token,
+                    }
+                )
+            )
             resp.set_cookie("token", token, httponly=True, samesite="Lax")
             return resp
         finally:
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Login error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Login error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -461,7 +510,8 @@ def get_me():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get me error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get me error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -474,7 +524,9 @@ def get_chats():
         try:
             chat_ids = [
                 r.chat_id
-                for r in db.query(ChatParticipant.chat_id).filter_by(user_id=user_id).all()
+                for r in db.query(ChatParticipant.chat_id)
+                .filter_by(user_id=user_id)
+                .all()
             ]
             if not chat_ids:
                 return jsonify([])
@@ -490,7 +542,8 @@ def get_chats():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get chats error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get chats error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -529,7 +582,8 @@ def create_chat():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create chat error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create chat error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -540,8 +594,11 @@ def delete_chat(chat_id):
         user_id = request.user_id
         db = SessionLocal()
         try:
-            cp = db.query(ChatParticipant).filter_by(
-                chat_id=chat_id, user_id=user_id).first()
+            cp = (
+                db.query(ChatParticipant)
+                .filter_by(chat_id=chat_id, user_id=user_id)
+                .first()
+            )
             if cp:
                 chat = db.query(Chat).filter_by(id=chat_id).first()
                 if chat:
@@ -552,7 +609,8 @@ def delete_chat(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete chat error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete chat error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -575,7 +633,8 @@ def get_messages(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get messages error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get messages error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -616,7 +675,8 @@ def create_message(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create message error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Create message error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -636,7 +696,8 @@ def mark_read(chat_id):
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Mark read error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Mark read error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -646,17 +707,17 @@ def update_profile():
     try:
         user_id = request.user_id
         data = request.get_json() or {}
-        new_display_name = data.get(
-            "displayName", "").strip() if "displayName" in data else None
-        new_username = data.get("username", "").strip(
-        ) if "username" in data else None
+        new_display_name = (
+            data.get("displayName", "").strip() if "displayName" in data else None
+        )
+        new_username = data.get("username", "").strip() if "username" in data else None
 
         if new_display_name is not None and not new_display_name:
             return jsonify({"error": "Имя не может быть пустым"}), 400
         if new_username is not None:
             if len(new_username) < 3:
                 return jsonify({"error": "Минимум 3 символа"}), 400
-            if not re.match(r'^[a-zA-Z0-9_]+$', new_username):
+            if not re.match(r"^[a-zA-Z0-9_]+$", new_username):
                 return jsonify({"error": "Только буквы, цифры и подчёркивание"}), 400
 
         db = SessionLocal()
@@ -676,7 +737,8 @@ def update_profile():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Update profile error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Update profile error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -685,21 +747,21 @@ def update_profile():
 def upload_avatar():
     try:
         user_id = request.user_id
-        if 'avatar' not in request.files:
+        if "avatar" not in request.files:
             return jsonify({"error": "No file provided"}), 400
-        file = request.files['avatar']
+        file = request.files["avatar"]
         if not file or not file.filename:
             return jsonify({"error": "Invalid file"}), 400
-        content_type = file.content_type or ''
-        if not content_type.startswith('image/'):
+        content_type = file.content_type or ""
+        if not content_type.startswith("image/"):
             return jsonify({"error": "File must be an image"}), 400
-        ext = 'jpg'
-        if 'png' in content_type:
-            ext = 'png'
-        elif 'gif' in content_type:
-            ext = 'gif'
-        elif 'webp' in content_type:
-            ext = 'webp'
+        ext = "jpg"
+        if "png" in content_type:
+            ext = "png"
+        elif "gif" in content_type:
+            ext = "gif"
+        elif "webp" in content_type:
+            ext = "webp"
         filename = f"{user_id}.{ext}"
         filepath = os.path.join(AVATARS_DIR, filename)
         file.save(filepath)
@@ -716,7 +778,8 @@ def upload_avatar():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Avatar upload error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Avatar upload error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -735,11 +798,13 @@ def delete_message(msg_id):
             chat_id = msg.chat_id
             db.delete(msg)
             db.commit()
-            payload = json.dumps({
-                "type": "delete_message",
-                "chatId": chat_id,
-                "messageId": msg_id,
-            })
+            payload = json.dumps(
+                {
+                    "type": "delete_message",
+                    "chatId": chat_id,
+                    "messageId": msg_id,
+                }
+            )
             disconnected = []
             for uid, ws in ws_clients.items():
                 try:
@@ -753,7 +818,8 @@ def delete_message(msg_id):
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete message error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Delete message error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -781,11 +847,13 @@ def search_users():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Search users error: {e}"')
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Search users error: {e}"'
+        )
         return jsonify({"error": "Internal server error"}), 500
 
 
 # ─── WebSocket ────────────────────────────────────────────────────────────────
+
 
 @sock.route("/ws")
 def websocket_handler(ws):
@@ -839,8 +907,9 @@ init_db()
 
 if __name__ == "__main__":
     logging.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  "Server restarted."')
-    if os.path.isdir('C:'):
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  "Server restarted."'
+    )
+    if os.path.isdir("C:"):
         app.run(host="127.0.0.1", port=1111, debug=True)
     else:
         app.run(host="0.0.0.0", port=5000, debug=False)
