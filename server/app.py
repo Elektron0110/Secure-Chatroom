@@ -91,6 +91,7 @@ class Chat(Base):
     name = Column(String)
     is_group = Column(Boolean, default=False)
     avatar_url = Column(String)
+    creator_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"))
     created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
     updated_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
@@ -152,6 +153,18 @@ def init_db():
             )
         except Exception:
             pass  # Столбец уже существует
+
+        # Миграция: добавить столбец creator_id в chats если ещё нет
+        try:
+            conn.execute(
+                text("ALTER TABLE chats ADD COLUMN creator_id VARCHAR"))
+            conn.commit()
+            logger.log(
+                f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Migration: added creator_id column to chats"'
+            )
+        except Exception:
+            pass  # Столбец уже существует
+
     logger.log(
         f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Database initialized: {DB_PATH}"'
     )
@@ -224,6 +237,8 @@ def chat_dict(chat, current_user_id, db):
         .scalar()
     )
 
+    is_creator = chat.creator_id == current_user_id if chat.creator_id else False
+
     return {
         "id": chat.id,
         "name": chat.name,
@@ -234,6 +249,7 @@ def chat_dict(chat, current_user_id, db):
         "participants": participants,
         "lastMessage": last_message,
         "unreadCount": unread_count,
+        "isCreator": is_creator,
     }
 
 
@@ -576,7 +592,7 @@ def create_chat():
 
         db = SessionLocal()
         try:
-            chat = Chat(name=name, is_group=is_group)
+            chat = Chat(name=name, is_group=is_group, creator_id=user_id)
             db.add(chat)
             db.flush()
 
@@ -905,6 +921,144 @@ def search_users():
     except Exception as e:
         logger.log(
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Search users error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# ─── Chat participants management ─────────────────────────────────────────────
+
+
+@app.route("/api/chats/<chat_id>/participants", methods=["GET"])
+@auth_required
+def get_chat_participants(chat_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            cp = (
+                db.query(ChatParticipant)
+                .filter_by(chat_id=chat_id, user_id=user_id)
+                .first()
+            )
+            if not cp:
+                return jsonify({"error": "Access denied"}), 403
+
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat:
+                return jsonify({"error": "Chat not found"}), 404
+
+            participants = [user_dict(p.user) for p in chat.participants]
+            is_creator = chat.creator_id == user_id if chat.creator_id else False
+
+            return jsonify({
+                "participants": participants,
+                "isCreator": is_creator,
+                "chatId": chat_id,
+            })
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get participants error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/chats/<chat_id>/participants", methods=["POST"])
+@auth_required
+def add_chat_participant(chat_id):
+    try:
+        user_id = request.user_id
+        data = request.get_json() or {}
+        participant_id = data.get("participantId")
+
+        if not participant_id:
+            return jsonify({"error": "Participant ID is required"}), 400
+
+        db = SessionLocal()
+        try:
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat:
+                return jsonify({"error": "Chat not found"}), 404
+
+            if not chat.is_group:
+                return jsonify({"error": "Can only add participants to group chats"}), 400
+
+            if chat.creator_id != user_id:
+                return jsonify({"error": "Only the creator can add participants"}), 403
+
+            existing = (
+                db.query(ChatParticipant)
+                .filter_by(chat_id=chat_id, user_id=participant_id)
+                .first()
+            )
+            if existing:
+                return jsonify({"error": "User is already a participant"}), 400
+
+            new_participant = ChatParticipant(chat_id=chat_id, user_id=participant_id)
+            db.add(new_participant)
+            db.commit()
+
+            chat.updated_at = datetime.datetime.now(datetime.UTC)
+            db.commit()
+
+            broadcast_to_chat(chat_id, {
+                "type": "participant_added",
+                "userId": participant_id,
+            })
+
+            return jsonify({"success": True})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Add participant error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/chats/<chat_id>/participants/<participant_id>", methods=["DELETE"])
+@auth_required
+def remove_chat_participant(chat_id, participant_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat:
+                return jsonify({"error": "Chat not found"}), 404
+
+            if not chat.is_group:
+                return jsonify({"error": "Can only remove participants from group chats"}), 400
+
+            if chat.creator_id != user_id and participant_id != user_id:
+                return jsonify({"error": "Only the creator can remove participants, or users can remove themselves"}), 403
+
+            participant = (
+                db.query(ChatParticipant)
+                .filter_by(chat_id=chat_id, user_id=participant_id)
+                .first()
+            )
+            if not participant:
+                return jsonify({"error": "Participant not found"}), 404
+
+            db.delete(participant)
+            db.commit()
+
+            chat.updated_at = datetime.datetime.now(datetime.UTC)
+            db.commit()
+
+            broadcast_to_chat(chat_id, {
+                "type": "participant_removed",
+                "userId": participant_id,
+            })
+
+            return jsonify({"success": True})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Remove participant error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
 
