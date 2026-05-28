@@ -16,6 +16,7 @@ const state = {
   searchTimer: null,
   groupMode: false,
   selectedUserIds: new Set(),
+  pendingAttachments: [],
 };
 
 // ═══════════════════════════════════════════════
@@ -397,17 +398,27 @@ async function loadMessages(chatId) {
 async function sendMessage() {
   const input = qs('#msg-input');
   const content = input.value.trim();
-  if (!content || !state.currentChatId) return;
+  if ((!content && state.pendingAttachments.length === 0) || !state.currentChatId) return;
+  
+  const attachmentsToSend = [...state.pendingAttachments];
+  state.pendingAttachments = [];
+  renderAttachmentPreviews();
+  
   input.value = '';
   autoResize(input);
   try {
-    const msg = await api('POST', `/api/chats/${state.currentChatId}/messages`, { content });
+    const msg = await api('POST', `/api/chats/${state.currentChatId}/messages`, { 
+      content, 
+      attachments: attachmentsToSend 
+    });
     state.messages.push(msg);
     appendMessage(msg, true);
     scrollMessages();
     loadChats();
   } catch (e) {
     showToast(e.message || 'Ошибка отправки');
+    state.pendingAttachments = attachmentsToSend;
+    renderAttachmentPreviews();
   }
 }
 
@@ -576,11 +587,21 @@ function renderMessages() {
              <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
            </svg>
          </button>` : '';
+    
+    // Рендерим изображения из attachments
+    let imagesHtml = '';
+    if (msg.attachments && msg.attachments.length > 0) {
+      imagesHtml = '<div class="msg-images">' + msg.attachments.map(att => 
+        `<img src="${escHtml(att)}" alt="attachment" class="msg-image">`
+      ).join('') + '</div>';
+    }
+    
     return `${dateSep}<div class="msg-wrap ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
       ${deleteBtn}
       ${senderName}
       <div class="msg-bubble">
         <div class="msg-text">${escHtml(msg.content)}</div>
+        ${imagesHtml}
         <div class="msg-meta"><span class="msg-time">${formatTimeShort(msg.createdAt)}</span>${tick}</div>
       </div>
     </div>`;
@@ -614,8 +635,18 @@ function appendMessage(msg, isSent) {
            <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
          </svg>
        </button>` : '';
+  
+  // Рендерим изображения из attachments
+  let imagesHtml = '';
+  if (msg.attachments && msg.attachments.length > 0) {
+    imagesHtml = '<div class="msg-images">' + msg.attachments.map(att => 
+      `<img src="${escHtml(att)}" alt="attachment" class="msg-image">`
+    ).join('') + '</div>';
+  }
+  
   div.innerHTML = `${deleteBtn}${senderName}<div class="msg-bubble">
     <div class="msg-text">${escHtml(msg.content)}</div>
+    ${imagesHtml}
     <div class="msg-meta"><span class="msg-time">${formatTimeShort(msg.createdAt)}</span>${tick}</div>
   </div>`;
   div.querySelectorAll('.msg-delete-btn').forEach(btn => {

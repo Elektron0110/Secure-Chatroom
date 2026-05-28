@@ -40,7 +40,9 @@ logger = Log(r"server\Server.log")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 AVATARS_DIR = os.path.join(STATIC_DIR, "avatars")
+UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
 os.makedirs(AVATARS_DIR, exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 sock = Sock(app)
@@ -123,6 +125,7 @@ class Message(Base):
     )
     content = Column(Text, nullable=False)
     encrypted_content = Column(Text)
+    attachments = Column(Text)  # JSON-список URL файлов
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
 
@@ -180,12 +183,20 @@ def user_dict(u):
 
 
 def message_dict(m):
+    import json as json_module
+    attachments = []
+    if m.attachments:
+        try:
+            attachments = json_module.loads(m.attachments)
+        except Exception:
+            attachments = []
     return {
         "id": m.id,
         "chatId": m.chat_id,
         "senderId": m.sender_id,
         "content": m.content,
         "encryptedContent": m.encrypted_content,
+        "attachments": attachments,
         "isRead": m.is_read,
         "createdAt": dt_iso(m.created_at),
         "sender": user_dict(m.sender),
@@ -647,9 +658,10 @@ def create_message(chat_id):
         data = request.get_json() or {}
         content = data.get("content", "").strip()
         encrypted_content = data.get("encryptedContent")
+        attachments = data.get("attachments", [])
 
-        if not content:
-            return jsonify({"error": "Message content is required"}), 400
+        if not content and not attachments:
+            return jsonify({"error": "Message content or attachments are required"}), 400
 
         db = SessionLocal()
         try:
@@ -658,6 +670,7 @@ def create_message(chat_id):
                 sender_id=user_id,
                 content=content,
                 encrypted_content=encrypted_content,
+                attachments=json.dumps(attachments) if attachments else None,
             )
             db.add(msg)
 
@@ -782,6 +795,47 @@ def upload_avatar():
     except Exception as e:
         logger.log(
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Avatar upload error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/uploads", methods=["POST"])
+@auth_required
+def upload_file():
+    try:
+        user_id = request.user_id
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        file = request.files["file"]
+        if not file or not file.filename:
+            return jsonify({"error": "Invalid file"}), 400
+        
+        # Проверяем, что файл является изображением
+        content_type = file.content_type or ""
+        if not content_type.startswith("image/"):
+            return jsonify({"error": "File must be an image"}), 400
+        
+        # Определяем расширение
+        ext = "jpg"
+        if "png" in content_type:
+            ext = "png"
+        elif "gif" in content_type:
+            ext = "gif"
+        elif "webp" in content_type:
+            ext = "webp"
+        elif "jpeg" in content_type:
+            ext = "jpg"
+        
+        # Генерируем уникальное имя файла
+        unique_filename = f"{uuid.uuid4()}.{ext}"
+        filepath = os.path.join(UPLOADS_DIR, unique_filename)
+        file.save(filepath)
+        
+        file_url = f"/static/uploads/{unique_filename}"
+        return jsonify({"fileUrl": file_url, "fileName": file.filename, "contentType": content_type})
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "File upload error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
 
