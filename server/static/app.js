@@ -1020,6 +1020,35 @@ function setupEvents() {
     if (file) uploadAvatar(file);
     avatarInput.value = '';
   });
+
+  // Group members modal
+  qs('#participants-btn').onclick = () => openGroupMembersModal();
+  qs('#close-members-modal').onclick = () => closeModal('group-members-modal');
+  
+  // Group avatar upload
+  const groupAvatarInput = qs('#group-avatar-upload-input');
+  qs('#group-avatar-container').onclick = () => {
+    if (state.currentChat && state.currentChat.isGroup && state.currentChat.creatorId === state.user.id) {
+      groupAvatarInput.click();
+    }
+  };
+  groupAvatarInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file && state.currentChatId) {
+      uploadGroupAvatar(file);
+    }
+    groupAvatarInput.value = '';
+  });
+  
+  // Remove group avatar
+  qs('#remove-group-avatar-btn').onclick = () => {
+    if (state.currentChatId) deleteGroupAvatar();
+  };
+  
+  // Member search
+  qs('#member-search-input').addEventListener('input', e => {
+    searchUsersForGroup(e.target.value);
+  });
 }
 
 // ═══════════════════════════════════════════════

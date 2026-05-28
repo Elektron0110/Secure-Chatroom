@@ -40,8 +40,10 @@ logger = Log(r"server\Server.log")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 AVATARS_DIR = os.path.join(STATIC_DIR, "avatars")
+GROUP_AVATARS_DIR = os.path.join(STATIC_DIR, "group_avatars")
 UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
 os.makedirs(AVATARS_DIR, exist_ok=True)
+os.makedirs(GROUP_AVATARS_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
@@ -811,6 +813,106 @@ def upload_avatar():
     except Exception as e:
         logger.log(
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Avatar upload error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/chats/<chat_id>/avatar", methods=["POST"])
+@auth_required
+def upload_group_avatar(chat_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat:
+                return jsonify({"error": "Chat not found"}), 404
+            
+            if not chat.is_group:
+                return jsonify({"error": "Can only set avatar for group chats"}), 400
+            
+            if chat.creator_id != user_id:
+                return jsonify({"error": "Only the creator can change group avatar"}), 403
+            
+            if "avatar" not in request.files:
+                return jsonify({"error": "No file provided"}), 400
+            file = request.files["avatar"]
+            if not file or not file.filename:
+                return jsonify({"error": "Invalid file"}), 400
+            content_type = file.content_type or ""
+            if not content_type.startswith("image/"):
+                return jsonify({"error": "File must be an image"}), 400
+            ext = "jpg"
+            if "png" in content_type:
+                ext = "png"
+            elif "gif" in content_type:
+                ext = "gif"
+            elif "webp" in content_type:
+                ext = "webp"
+            filename = f"{chat_id}.{ext}"
+            filepath = os.path.join(GROUP_AVATARS_DIR, filename)
+            file.save(filepath)
+            avatar_url = f"/static/group_avatars/{filename}"
+            chat.avatar_url = avatar_url
+            db.commit()
+            
+            broadcast_to_chat(chat_id, {
+                "type": "group_avatar_updated",
+                "avatarUrl": avatar_url,
+            })
+            
+            return jsonify({"avatarUrl": avatar_url})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Group avatar upload error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/chats/<chat_id>/avatar", methods=["DELETE"])
+@auth_required
+def delete_group_avatar(chat_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat:
+                return jsonify({"error": "Chat not found"}), 404
+            
+            if not chat.is_group:
+                return jsonify({"error": "Can only remove avatar from group chats"}), 400
+            
+            if chat.creator_id != user_id:
+                return jsonify({"error": "Only the creator can remove group avatar"}), 403
+            
+            # Remove the avatar file if it exists
+            if chat.avatar_url:
+                try:
+                    # Extract filename from URL like "/static/group_avatars/filename.ext"
+                    filename = chat.avatar_url.split("/")[-1]
+                    filepath = os.path.join(GROUP_AVATARS_DIR, filename)
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                except Exception:
+                    pass  # Ignore file removal errors
+            
+            chat.avatar_url = None
+            db.commit()
+            
+            broadcast_to_chat(chat_id, {
+                "type": "group_avatar_updated",
+                "avatarUrl": None,
+            })
+            
+            return jsonify({"success": True})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Group avatar delete error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
 
