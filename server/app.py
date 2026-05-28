@@ -41,6 +41,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 AVATARS_DIR = os.path.join(STATIC_DIR, "avatars")
 os.makedirs(AVATARS_DIR, exist_ok=True)
+UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+GROUP_AVATARS_DIR = os.path.join(STATIC_DIR, "group_avatars")
+os.makedirs(GROUP_AVATARS_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 sock = Sock(app)
@@ -125,6 +129,7 @@ class Message(Base):
     encrypted_content = Column(Text)
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
+    file_urls = Column(Text)  # JSON-список URL файлов
 
     chat = relationship("Chat", back_populates="messages")
     sender = relationship("User")
@@ -180,6 +185,12 @@ def user_dict(u):
 
 
 def message_dict(m):
+    file_urls = []
+    if m.file_urls:
+        try:
+            file_urls = json.loads(m.file_urls)
+        except Exception:
+            pass
     return {
         "id": m.id,
         "chatId": m.chat_id,
@@ -189,6 +200,7 @@ def message_dict(m):
         "isRead": m.is_read,
         "createdAt": dt_iso(m.created_at),
         "sender": user_dict(m.sender),
+        "fileUrls": file_urls,
     }
 
 
@@ -343,6 +355,8 @@ def register():
 
         if len(username) < 3:
             return jsonify({"error": "Username must be at least 3 characters"}), 400
+        if not re.match(r"^[a-zA-Z0-9_]+$", username):
+            return jsonify({"error": "Username can only contain Latin letters, numbers and underscores"}), 400
         if len(password) < 6:
             return jsonify({"error": "Password must be at least 6 characters"}), 400
         if not display_name:
@@ -438,6 +452,8 @@ def login():
 
         if len(username) < 3:
             return jsonify({"error": "Username must be at least 3 characters"}), 400
+        if not re.match(r"^[a-zA-Z0-9_]+$", username):
+            return jsonify({"error": "Username can only contain Latin letters, numbers and underscores"}), 400
         if len(password) < 6:
             return jsonify({"error": "Password must be at least 6 characters"}), 400
 
@@ -647,9 +663,10 @@ def create_message(chat_id):
         data = request.get_json() or {}
         content = data.get("content", "").strip()
         encrypted_content = data.get("encryptedContent")
+        file_urls = data.get("fileUrls", [])
 
-        if not content:
-            return jsonify({"error": "Message content is required"}), 400
+        if not content and not file_urls:
+            return jsonify({"error": "Message content or files are required"}), 400
 
         db = SessionLocal()
         try:
@@ -658,6 +675,7 @@ def create_message(chat_id):
                 sender_id=user_id,
                 content=content,
                 encrypted_content=encrypted_content,
+                file_urls=json.dumps(file_urls) if file_urls else None,
             )
             db.add(msg)
 
@@ -786,6 +804,92 @@ def upload_avatar():
         return jsonify({"error": "Internal server error"}), 500
 
 
+@app.route("/api/chats/<chat_id>/avatar", methods=["POST"])
+@auth_required
+def upload_group_avatar(chat_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            cp = db.query(ChatParticipant).filter_by(
+                chat_id=chat_id, user_id=user_id).first()
+            if not cp:
+                return jsonify({"error": "Access denied"}), 403
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat or not chat.is_group:
+                return jsonify({"error": "Chat not found"}), 404
+
+            if "avatar" not in request.files:
+                return jsonify({"error": "No file provided"}), 400
+            file = request.files["avatar"]
+            if not file or not file.filename:
+                return jsonify({"error": "Invalid file"}), 400
+            content_type = file.content_type or ""
+            if not content_type.startswith("image/"):
+                return jsonify({"error": "File must be an image"}), 400
+            ext = "jpg"
+            if "png" in content_type:
+                ext = "png"
+            elif "gif" in content_type:
+                ext = "gif"
+            elif "webp" in content_type:
+                ext = "webp"
+            filename = f"{chat_id}.{ext}"
+            filepath = os.path.join(GROUP_AVATARS_DIR, filename)
+            file.save(filepath)
+            avatar_url = f"/static/group_avatars/{filename}"
+            chat.avatar_url = avatar_url
+            db.commit()
+            return jsonify({"avatarUrl": avatar_url, "chat": chat_dict(chat, user_id, db)})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Group avatar upload error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/messages/upload-files", methods=["POST"])
+@auth_required
+def upload_message_files():
+    try:
+        user_id = request.user_id
+        if "files" not in request.files:
+            return jsonify({"error": "No files provided"}), 400
+        files = request.files.getlist("files")
+        if not files:
+            return jsonify({"error": "No files provided"}), 400
+
+        uploaded_urls = []
+        for file in files:
+            if not file or not file.filename:
+                continue
+            content_type = file.content_type or ""
+            if not content_type.startswith("image/"):
+                continue
+            ext = "jpg"
+            if "png" in content_type:
+                ext = "png"
+            elif "gif" in content_type:
+                ext = "gif"
+            elif "webp" in content_type:
+                ext = "webp"
+            unique_id = str(uuid.uuid4())
+            filename = f"{unique_id}.{ext}"
+            filepath = os.path.join(UPLOADS_DIR, filename)
+            file.save(filepath)
+            file_url = f"/static/uploads/{filename}"
+            uploaded_urls.append(file_url)
+
+        return jsonify({"fileUrls": uploaded_urls})
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "File upload error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
 @app.route("/api/messages/<msg_id>", methods=["DELETE"])
 @auth_required
 def delete_message(msg_id):
@@ -851,6 +955,97 @@ def search_users():
     except Exception as e:
         logger.log(
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Search users error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/chats/<chat_id>/participants", methods=["GET"])
+@auth_required
+def get_chat_participants(chat_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            cp = db.query(ChatParticipant).filter_by(
+                chat_id=chat_id, user_id=user_id).first()
+            if not cp:
+                return jsonify({"error": "Access denied"}), 403
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat:
+                return jsonify({"error": "Chat not found"}), 404
+            participants = [user_dict(p.user) for p in chat.participants]
+            return jsonify({"participants": participants})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get participants error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/chats/<chat_id>/participants", methods=["POST"])
+@auth_required
+def add_chat_participant(chat_id):
+    try:
+        user_id = request.user_id
+        data = request.get_json() or {}
+        new_user_id = data.get("userId")
+        if not new_user_id:
+            return jsonify({"error": "User ID is required"}), 400
+        db = SessionLocal()
+        try:
+            cp = db.query(ChatParticipant).filter_by(
+                chat_id=chat_id, user_id=user_id).first()
+            if not cp:
+                return jsonify({"error": "Access denied"}), 403
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat or not chat.is_group:
+                return jsonify({"error": "Only group chats can have participants added"}), 400
+            existing = db.query(ChatParticipant).filter_by(
+                chat_id=chat_id, user_id=new_user_id).first()
+            if existing:
+                return jsonify({"error": "User already in chat"}), 400
+            db.add(ChatParticipant(chat_id=chat_id, user_id=new_user_id))
+            chat.updated_at = datetime.datetime.now(datetime.UTC)
+            db.commit()
+            return jsonify({"success": True, "chat": chat_dict(chat, user_id, db)})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Add participant error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/chats/<chat_id>/participants/<participant_id>", methods=["DELETE"])
+@auth_required
+def remove_chat_participant(chat_id, participant_id):
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            cp = db.query(ChatParticipant).filter_by(
+                chat_id=chat_id, user_id=user_id).first()
+            if not cp:
+                return jsonify({"error": "Access denied"}), 403
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat or not chat.is_group:
+                return jsonify({"error": "Only group chats can have participants removed"}), 400
+            to_remove = db.query(ChatParticipant).filter_by(
+                chat_id=chat_id, user_id=participant_id).first()
+            if not to_remove:
+                return jsonify({"error": "Participant not found"}), 404
+            db.delete(to_remove)
+            chat.updated_at = datetime.datetime.now(datetime.UTC)
+            db.commit()
+            return jsonify({"success": True, "chat": chat_dict(chat, user_id, db)})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Remove participant error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
 

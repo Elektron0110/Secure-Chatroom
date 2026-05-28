@@ -16,6 +16,7 @@ const state = {
   searchTimer: null,
   groupMode: false,
   selectedUserIds: new Set(),
+  pendingFileUrls: [],
 };
 
 // ═══════════════════════════════════════════════
@@ -397,15 +398,18 @@ async function loadMessages(chatId) {
 async function sendMessage() {
   const input = qs('#msg-input');
   const content = input.value.trim();
-  if (!content || !state.currentChatId) return;
+  const fileUrls = state.pendingFileUrls || [];
+  if ((!content && fileUrls.length === 0) || !state.currentChatId) return;
   input.value = '';
   autoResize(input);
   try {
-    const msg = await api('POST', `/api/chats/${state.currentChatId}/messages`, { content });
+    const msg = await api('POST', `/api/chats/${state.currentChatId}/messages`, { content, fileUrls });
     state.messages.push(msg);
     appendMessage(msg, true);
     scrollMessages();
     loadChats();
+    state.pendingFileUrls = [];
+    updateFileAttachmentsBar();
   } catch (e) {
     showToast(e.message || 'Ошибка отправки');
   }
@@ -576,10 +580,14 @@ function renderMessages() {
              <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
            </svg>
          </button>` : '';
+    const fileUrlsHtml = msg.fileUrls && msg.fileUrls.length
+      ? `<div class="msg-files">${msg.fileUrls.map(url => `<img src="${url}" class="msg-image" alt="">`).join('')}</div>`
+      : '';
     return `${dateSep}<div class="msg-wrap ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
       ${deleteBtn}
       ${senderName}
       <div class="msg-bubble">
+        ${fileUrlsHtml}
         <div class="msg-text">${escHtml(msg.content)}</div>
         <div class="msg-meta"><span class="msg-time">${formatTimeShort(msg.createdAt)}</span>${tick}</div>
       </div>
@@ -614,7 +622,11 @@ function appendMessage(msg, isSent) {
            <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
          </svg>
        </button>` : '';
+  const fileUrlsHtml = msg.fileUrls && msg.fileUrls.length
+    ? `<div class="msg-files">${msg.fileUrls.map(url => `<img src="${url}" class="msg-image" alt="">`).join('')}</div>`
+    : '';
   div.innerHTML = `${deleteBtn}${senderName}<div class="msg-bubble">
+    ${fileUrlsHtml}
     <div class="msg-text">${escHtml(msg.content)}</div>
     <div class="msg-meta"><span class="msg-time">${formatTimeShort(msg.createdAt)}</span>${tick}</div>
   </div>`;
