@@ -41,6 +41,7 @@ app-example
 __pycache__
 *.log
 avatars
+server/push.py
 
 # generated native folders
 /ios
