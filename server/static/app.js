@@ -18,6 +18,8 @@ const state = {
   selectedUserIds: new Set(),
 };
 
+const flag = true;
+
 // ═══════════════════════════════════════════════
 //  UTILS
 // ═══════════════════════════════════════════════
@@ -355,6 +357,37 @@ function disconnectWs() {
 // ═══════════════════════════════════════════════
 //  CHATS
 // ═══════════════════════════════════════════════
+
+Notification.requestPermission().then(permission => {
+  if (permission === 'granted') {
+    // Если разрешено — показываем уведомление
+    showNotification('Уведомления включены.');
+  } else {
+    // Иначе сообщаем пользователю
+    alert('Разрешение на отправку уведомлений не получено.');
+  }
+});
+
+function showNotification(message) {
+  // Создаём новое уведомление
+  const notification = new Notification('Уведомление от сайта', {
+    body: message,          // Основной текст
+    icon: '/static/fav.jpg',// Путь к иконке (необязательно)
+  });
+
+  // При клике на уведомление — фокусируется на вкладке, где оно было создано
+  notification.onclick = function(event) {
+    event.preventDefault(); // Предотвращаем любые стандартные действия (если таковые имеются)
+
+    // Явно фокусируется на окне/вкладке, где было создано уведомление
+    // self === window в глобальном контексте
+    self.focus();
+
+    // Также можно закрыть уведомление после клика
+    notification.close();
+  };
+}
+
 async function loadChats() {
   try {
     const chats = await api('GET', '/api/chats');
@@ -388,7 +421,16 @@ async function openChat(chatId) {
 async function loadMessages(chatId) {
   try {
     const msgs = await api('GET', `/api/chats/${chatId}/messages`);
+    console.log((JSON.stringify(state.messages) !== JSON.stringify(msgs)) && (flag));
     state.messages = msgs;
+    if ((JSON.stringify(state.messages) !== JSON.stringify(msgs)) && (flag)) {
+      flag = false;
+      var name = getChatName(chatId);
+      alert(name);
+      showNotification('Вам пришло сообщение в чате "' + name + '"');
+    } else if (((JSON.stringify(state.messages) === JSON.stringify(msgs)) && (!flag))) {
+      flag = true;
+    }
     renderMessages();
     scrollMessages(false);
   } catch (_) { }
@@ -492,7 +534,7 @@ function startPolling() {
   state.chatPolling = setInterval(loadChats, 6000);
   state.msgPolling = setInterval(() => {
     if (state.currentChatId) loadMessages(state.currentChatId);
-  }, 3500);
+  }, 500);
 }
 
 function stopPolling() {
