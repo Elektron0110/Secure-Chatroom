@@ -19,7 +19,6 @@ const state = {
 };
 
 let flag = true;
-let senderFlag = true;
 
 // ═══════════════════════════════════════════════
 //  UTILS
@@ -415,23 +414,21 @@ async function openChat(chatId) {
   }
 
   markActive(chatId);
-  await loadMessages(chatId, false);
+  await loadMessages(chatId);
   markRead(chatId);
 }
 
-async function loadMessages(chatId, isNotOpeningChat = true) {
+async function loadMessages(chatId) {
   try {
     const msgs = await api('GET', `/api/chats/${chatId}/messages`);
-    console.log(JSON.stringify(state.messages) !== JSON.stringify(msgs) && flag && isNotOpeningChat && senderFlag);
-    if (JSON.stringify(state.messages) !== JSON.stringify(msgs) && flag && isNotOpeningChat && senderFlag) {
+    if (JSON.stringify(state.messages) !== JSON.stringify(msgs) && flag && document.hidden) {
       flag = false;
       const chat = state.chats.find(c => c.id === chatId);
       const chatName = chat ? getChatName(chat) : 'Чат';
       showNotification('У Вас новое сообщение в чате "' + chatName + '"');
-    } else if (JSON.stringify(state.messages) === JSON.stringify(msgs) && !flag && isNotOpeningChat && senderFlag) {
+    } else if (JSON.stringify(state.messages) === JSON.stringify(msgs) && !flag) {
       flag = true;
     }
-    senderFlag = true;
     state.messages = msgs;
     renderMessages();
     scrollMessages(false);
@@ -448,7 +445,6 @@ async function sendMessage() {
     const msg = await api('POST', `/api/chats/${state.currentChatId}/messages`, { content });
     state.messages.push(msg);
     appendMessage(msg, true);
-    senderFlag = false;
     scrollMessages();
     loadChats();
   } catch (e) {
