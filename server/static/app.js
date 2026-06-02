@@ -19,6 +19,7 @@ const state = {
 };
 
 let flag = true;
+let senderFlag = true;
 
 // ═══════════════════════════════════════════════
 //  UTILS
@@ -361,7 +362,7 @@ function disconnectWs() {
 Notification.requestPermission().then(permission => {
   if (permission === 'granted') {
     // Если разрешено — показываем уведомление
-    showNotification('Уведомления включены.');
+    // showNotification('Уведомления включены.');
   } else {
     // Иначе сообщаем пользователю
     alert('Разрешение на отправку уведомлений не получено.');
@@ -414,23 +415,23 @@ async function openChat(chatId) {
   }
 
   markActive(chatId);
-  await loadMessages(chatId);
+  await loadMessages(chatId, false);
   markRead(chatId);
 }
 
-async function loadMessages(chatId) {
+async function loadMessages(chatId, isNotOpeningChat = true) {
   try {
     const msgs = await api('GET', `/api/chats/${chatId}/messages`);
-    console.log((JSON.stringify(state.messages) !== JSON.stringify(msgs)) && (flag));
-    if ((JSON.stringify(state.messages) !== JSON.stringify(msgs)) && (flag)) {
+    console.log(JSON.stringify(state.messages) !== JSON.stringify(msgs) && flag && isNotOpeningChat && senderFlag);
+    if (JSON.stringify(state.messages) !== JSON.stringify(msgs) && flag && isNotOpeningChat && senderFlag) {
       flag = false;
       const chat = state.chats.find(c => c.id === chatId);
       const chatName = chat ? getChatName(chat) : 'Чат';
-      alert(chatName);
-      showNotification('Вам пришло сообщение в чате "' + chatName + '"');
-    } else if (((JSON.stringify(state.messages) === JSON.stringify(msgs)) && (!flag))) {
+      showNotification('У Вас новое сообщение в чате "' + chatName + '"');
+    } else if (JSON.stringify(state.messages) === JSON.stringify(msgs) && !flag && isNotOpeningChat && senderFlag) {
       flag = true;
     }
+    senderFlag = true;
     state.messages = msgs;
     renderMessages();
     scrollMessages(false);
@@ -447,6 +448,7 @@ async function sendMessage() {
     const msg = await api('POST', `/api/chats/${state.currentChatId}/messages`, { content });
     state.messages.push(msg);
     appendMessage(msg, true);
+    senderFlag = false;
     scrollMessages();
     loadChats();
   } catch (e) {
@@ -535,7 +537,7 @@ function startPolling() {
   state.chatPolling = setInterval(loadChats, 6000);
   state.msgPolling = setInterval(() => {
     if (state.currentChatId) loadMessages(state.currentChatId);
-  }, 500);
+  }, 3500);
 }
 
 function stopPolling() {
