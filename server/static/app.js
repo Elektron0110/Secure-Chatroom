@@ -18,7 +18,7 @@ const state = {
   selectedUserIds: new Set(),
 };
 
-const flag = true;
+let flag = true;
 
 // ═══════════════════════════════════════════════
 //  UTILS
@@ -422,15 +422,16 @@ async function loadMessages(chatId) {
   try {
     const msgs = await api('GET', `/api/chats/${chatId}/messages`);
     console.log((JSON.stringify(state.messages) !== JSON.stringify(msgs)) && (flag));
-    state.messages = msgs;
     if ((JSON.stringify(state.messages) !== JSON.stringify(msgs)) && (flag)) {
       flag = false;
-      var name = getChatName(chatId);
-      alert(name);
-      showNotification('Вам пришло сообщение в чате "' + name + '"');
+      const chat = state.chats.find(c => c.id === chatId);
+      const chatName = chat ? getChatName(chat) : 'Чат';
+      alert(chatName);
+      showNotification('Вам пришло сообщение в чате "' + chatName + '"');
     } else if (((JSON.stringify(state.messages) === JSON.stringify(msgs)) && (!flag))) {
       flag = true;
     }
+    state.messages = msgs;
     renderMessages();
     scrollMessages(false);
   } catch (_) { }
