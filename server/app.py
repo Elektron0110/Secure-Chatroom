@@ -91,6 +91,7 @@ class Chat(Base):
     avatar_url = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.now())
     updated_at = Column(DateTime, default=datetime.datetime.now())
+    creator_id = Column(String)
 
     participants = relationship(
         "ChatParticipant", back_populates="chat", cascade="all, delete-orphan"
@@ -565,7 +566,7 @@ def create_chat():
 
         db = SessionLocal()
         try:
-            chat = Chat(name=name, is_group=is_group)
+            chat = Chat(name=name, is_group=is_group, creator_id=user_id)
             db.add(chat)
             db.flush()
 
