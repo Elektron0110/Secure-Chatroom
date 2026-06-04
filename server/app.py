@@ -58,7 +58,6 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
-
 @event.listens_for(Engine, "connect")
 def enable_foreign_keys(dbapi_conn, _):
     if isinstance(dbapi_conn, sqlite3.Connection):
@@ -66,9 +65,7 @@ def enable_foreign_keys(dbapi_conn, _):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-
 # ─── Модели ───────────────────────────────────────────────────────────────────
-
 
 class User(Base):
     __tablename__ = "users"
@@ -81,7 +78,6 @@ class User(Base):
     is_online = Column(Boolean, default=False)
     last_seen = Column(DateTime, default=datetime.datetime.now())
     created_at = Column(DateTime, default=datetime.datetime.now())
-
 
 class Chat(Base):
     __tablename__ = "chats"
@@ -100,7 +96,6 @@ class Chat(Base):
         "Message", back_populates="chat", cascade="all, delete-orphan"
     )
 
-
 class ChatParticipant(Base):
     __tablename__ = "chat_participants"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -112,7 +107,6 @@ class ChatParticipant(Base):
 
     chat = relationship("Chat", back_populates="participants")
     user = relationship("User")
-
 
 class Message(Base):
     __tablename__ = "messages"
@@ -130,12 +124,10 @@ class Message(Base):
     chat = relationship("Chat", back_populates="messages")
     sender = relationship("User")
 
-
 Index("ix_cp_chat_id", ChatParticipant.chat_id)
 Index("ix_cp_user_id", ChatParticipant.user_id)
 Index("ix_msg_chat_id", Message.chat_id)
 Index("ix_msg_sender_id", Message.sender_id)
-
 
 def init_db():
     Base.metadata.create_all(engine)
@@ -154,21 +146,16 @@ def init_db():
         f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Database initialized: {DB_PATH}"'
     )
 
-
 # ─── Вспомогательные функции ──────────────────────────────────────────────────
-
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-
 def generate_token():
     return secrets.token_hex(32)
 
-
 def dt_iso(dt):
     return f'{dt.isoformat()}+03:00' if isinstance(dt, datetime.datetime) else dt
-
 
 def user_dict(u):
     return {
@@ -178,7 +165,6 @@ def user_dict(u):
         "avatarUrl": u.avatar_url,
         "isOnline": u.is_online,
     }
-
 
 def message_dict(m):
     return {
@@ -191,7 +177,6 @@ def message_dict(m):
         "createdAt": dt_iso(m.created_at),
         "sender": user_dict(m.sender),
     }
-
 
 def chat_dict(chat, current_user_id, db):
     participants = [user_dict(cp.user) for cp in chat.participants]
@@ -224,11 +209,10 @@ def chat_dict(chat, current_user_id, db):
         "participants": participants,
         "lastMessage": last_message,
         "unreadCount": unread_count,
+        "creatorId": chat.creator_id,
     }
 
-
 # ─── Auth декоратор ───────────────────────────────────────────────────────────
-
 
 def auth_required(f):
     @wraps(f)
@@ -247,9 +231,7 @@ def auth_required(f):
 
     return decorated
 
-
 # ─── CORS ─────────────────────────────────────────────────────────────────────
-
 
 def setup_cors():
     origins = set()
@@ -278,7 +260,7 @@ def setup_cors():
             response.headers["Access-Control-Allow-Credentials"] = "true"
 
         logging.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  {request.headers.get("x-real-ip")}  "{request.method} {request.path}"  {response.status[:3]}'
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] {request.headers.get("x-real-ip")} "{request.method} {request.path}" {response.status[:3]}'
         )
         return response
 
@@ -301,9 +283,7 @@ def setup_cors():
                 resp.headers["Access-Control-Allow-Credentials"] = "true"
             return resp
 
-
 # ─── WebSocket broadcast ──────────────────────────────────────────────────────
-
 
 def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
     payload = json.dumps(
@@ -319,19 +299,15 @@ def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
     for uid in disconnected:
         ws_clients.pop(uid, None)
 
-
 # ─── Маршруты ─────────────────────────────────────────────────────────────────
-
 
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
 
-
 @app.route("/status", methods=["GET"])
 def status():
     return jsonify({"status": "ok"})
-
 
 @app.route("/api/auth/register", methods=["POST"])
 def register():
@@ -387,10 +363,9 @@ def register():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Register error: {e}'
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Register error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route("/api/auth/reset-password", methods=["POST"])
 def reset_password():
@@ -425,10 +400,9 @@ def reset_password():
             db.close()
     except Exception as e:
         logger.log(
-            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Reset password error: {e}'
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Reset password error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
@@ -478,7 +452,6 @@ def login():
         )
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route("/api/auth/logout", methods=["POST"])
 @auth_required
 def logout():
@@ -497,7 +470,6 @@ def logout():
     resp.delete_cookie("token")
     return resp
 
-
 @app.route("/api/auth/me", methods=["GET"])
 @auth_required
 def get_me():
@@ -515,7 +487,6 @@ def get_me():
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get me error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route("/api/chats", methods=["GET"])
 @auth_required
@@ -547,7 +518,6 @@ def get_chats():
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get chats error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route("/api/chats", methods=["POST"])
 @auth_required
@@ -588,7 +558,6 @@ def create_chat():
         )
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route("/api/chats/<chat_id>", methods=["DELETE"])
 @auth_required
 def delete_chat(chat_id):
@@ -615,7 +584,6 @@ def delete_chat(chat_id):
         )
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route("/api/chats/<chat_id>/messages", methods=["GET"])
 @auth_required
 def get_messages(chat_id):
@@ -638,7 +606,6 @@ def get_messages(chat_id):
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get messages error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route("/api/chats/<chat_id>/messages", methods=["POST"])
 @auth_required
@@ -682,7 +649,6 @@ def create_message(chat_id):
         )
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route("/api/chats/<chat_id>/read", methods=["POST"])
 @auth_required
 def mark_read(chat_id):
@@ -702,7 +668,6 @@ def mark_read(chat_id):
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Mark read error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route("/api/auth/profile", methods=["PATCH"])
 @auth_required
@@ -746,7 +711,6 @@ def update_profile():
         )
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route("/api/auth/avatar", methods=["POST"])
 @auth_required
 def upload_avatar():
@@ -787,6 +751,61 @@ def upload_avatar():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+@app.route("/api/chats/<chat_id>/avatar", methods=["POST"])
+@auth_required
+def upload_chat_avatar(chat_id):
+    """Загрузка аватара группового чата. Доступно только создателю чата."""
+    try:
+        user_id = request.user_id
+        db = SessionLocal()
+        try:
+            chat = db.query(Chat).filter_by(id=chat_id).first()
+            if not chat:
+                return jsonify({"error": "Chat not found"}), 404
+            
+            # Проверка: только создатель может менять аватар группы
+            if chat.creator_id != user_id:
+                return jsonify({"error": "Access denied. Only chat creator can change avatar"}), 403
+            
+            if not chat.is_group:
+                return jsonify({"error": "Only group chats can have custom avatars"}), 400
+            
+            if "avatar" not in request.files:
+                return jsonify({"error": "No file provided"}), 400
+            
+            file = request.files["avatar"]
+            if not file or not file.filename:
+                return jsonify({"error": "Invalid file"}), 400
+            
+            content_type = file.content_type or ""
+            if not content_type.startswith("image/"):
+                return jsonify({"error": "File must be an image"}), 400
+            
+            ext = "jpg"
+            if "png" in content_type:
+                ext = "png"
+            elif "gif" in content_type:
+                ext = "gif"
+            elif "webp" in content_type:
+                ext = "webp"
+            
+            filename = f"chat_{chat_id}.{ext}"
+            filepath = os.path.join(AVATARS_DIR, filename)
+            file.save(filepath)
+            avatar_url = f"/static/avatars/{filename}"
+            
+            chat.avatar_url = avatar_url
+            chat.updated_at = datetime.datetime.now()
+            db.commit()
+            
+            return jsonify({"avatarUrl": avatar_url, "chatId": chat_id})
+        finally:
+            db.close()
+    except Exception as e:
+        logger.log(
+            f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Chat avatar upload error: {e}"'
+        )
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route("/api/messages/<msg_id>", methods=["DELETE"])
 @auth_required
@@ -827,7 +846,6 @@ def delete_message(msg_id):
         )
         return jsonify({"error": "Internal server error"}), 500
 
-
 @app.route("/api/users/search", methods=["GET"])
 @auth_required
 def search_users():
@@ -856,9 +874,7 @@ def search_users():
         )
         return jsonify({"error": "Internal server error"}), 500
 
-
 # ─── WebSocket ────────────────────────────────────────────────────────────────
-
 
 @sock.route("/ws")
 def websocket_handler(ws):
@@ -904,7 +920,6 @@ def websocket_handler(ws):
         finally:
             db.close()
 
-
 # ─── Инициализация ────────────────────────────────────────────────────────────
 
 setup_cors()
@@ -912,6 +927,6 @@ init_db()
 
 if __name__ == "__main__":
     logging.log(
-        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}]  "Server restarted."'
+        f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Server restarted."'
     )
     app.run(host="0.0.0.0", port=5000, debug=True)
