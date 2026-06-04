@@ -1027,6 +1027,13 @@ a {
   cursor: pointer;
 }
 
+.chat-avatar-container {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  cursor: pointer;
+}
+
 .profile-avatar {
   width: 96px;
   height: 96px;

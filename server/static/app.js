@@ -559,8 +559,8 @@ function renderChatList() {
   list.innerHTML = chats.map(chat => {
     const name = getChatName(chat);
     const other = getOtherParticipant(chat);
-    const online = other && other.isOnline;
-    const avatarUrl = chat.isGroup ? null : (other && other.avatarUrl);
+    const online = chat.isGroup ? null : (other && other.isOnline);
+    const avatarUrl = other && other.avatarUrl;
     const initials = name.charAt(0).toUpperCase();
     const time = chat.lastMessage ? formatTime(chat.lastMessage.createdAt) : '';
     const preview = chat.lastMessage ? escHtml(chat.lastMessage.content) : 'Нет сообщений';
@@ -672,8 +672,11 @@ function renderChatHeader(chat, other) {
   if (chat.isGroup) {
     const count = chat.participants ? chat.participants.length : 0;
     qs('#chat-header-status').textContent = `${count} участников`;
+    const avatarContent = (other && other.avatarUrl)
+      ? `<img src="${other.avatarUrl}" alt="avatar">`
+      : name.charAt(0).toUpperCase();
     qs('#chat-header-avatar').innerHTML =
-      `<div class="chat-avatar group-avatar" style="width:38px;height:38px;font-size:16px">${name.charAt(0).toUpperCase()}</div>`;
+      `<div class="chat-avatar group-avatar" style="width:38px;height:38px;font-size:16px">${avatarContent}</div>`;
   } else {
     qs('#chat-header-status').textContent = other && other.isOnline ? 'В сети' : 'Не в сети';
     const avatarContent = (other && other.avatarUrl)
