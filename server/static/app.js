@@ -706,51 +706,73 @@ function appendMessage(msg, isSent) {
 function renderChatHeader(chat, other) {
     const name = getChatName(chat);
     qs('#chat-header-name').textContent = name;
+    const headerAvatar = qs('#chat-header-avatar');
 
     if (chat.isGroup) {
         const count = chat.participants ? chat.participants.length : 0;
         qs('#chat-header-status').textContent = `${count} участников`;
         
-        // Для групповых чатов используем avatarUrl самого чата
+        // Добавляем классы, чтобы у буквы был фон как у группового аватара
+        headerAvatar.className = 'chat-avatar group-avatar';
+        
+        // Содержимое: картинка или буква
         const avatarContent = chat.avatarUrl
             ? `<img src="${chat.avatarUrl}" alt="Avatar">`
             : name.charAt(0).toUpperCase();
         
         // Проверяем, является ли текущий пользователь создателем чата
         const isCreator = chat.creatorId === state.user.id;
-        const editButton = isCreator 
-            ? '<button id="edit-group-avatar-btn" class="header-btn" title="Изменить аватар группы"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>'
-            : '';
+        headerAvatar.style.cursor = isCreator ? 'pointer' : 'default';
+        headerAvatar.innerHTML = avatarContent;
         
-        qs('#chat-header-avatar').innerHTML = `
-            <div class="chat-avatar group-avatar">${avatarContent}</div>
-            ${editButton}
-        `;
+        // Удаляем старую кнопку редактирования, если она осталась от предыдущего чата
+        const oldEditBtn = qs('#edit-group-avatar-btn');
+        if (oldEditBtn) oldEditBtn.remove();
         
-        // Добавляем обработчик для кнопки изменения аватара
+        // Если пользователь — создатель, добавляем кнопку редактирования и клик на аватар
         if (isCreator) {
-            const editBtn = qs('#edit-group-avatar-btn');
-            if (editBtn) {
-                editBtn.onclick = () => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.onchange = (e) => {
-                        const file = e.target.files[0];
-                        if (file) uploadChatAvatar(chat.id, file);
-                    };
-                    input.click();
+            const editBtn = document.createElement('button');
+            editBtn.id = 'edit-group-avatar-btn';
+            editBtn.className = 'header-btn';
+            editBtn.title = 'Изменить аватар группы';
+            editBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+            
+            const openFilePicker = () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (file) uploadChatAvatar(chat.id, file);
                 };
-            }
+                input.click();
+            };
+            
+            editBtn.onclick = (e) => {
+                e.stopPropagation();
+                openFilePicker();
+            };
+            
+            headerAvatar.onclick = openFilePicker;
+            headerAvatar.parentNode.insertBefore(editBtn, headerAvatar.nextSibling);
+        } else {
+            headerAvatar.onclick = null;
         }
     } else {
         qs('#chat-header-status').textContent = other && other.isOnline ? 'В сети' : 'Не в сети';
+        
+        // Для личных чатов — обычный аватар (без класса group-avatar)
+        headerAvatar.className = 'chat-avatar';
         const avatarContent = (other && other.avatarUrl)
             ? `<img src="${other.avatarUrl}" alt="Avatar">`
             : name.charAt(0).toUpperCase();
-        qs('#chat-header-avatar').innerHTML = `
-            <div class="chat-avatar">${avatarContent}</div>
-        `;
+        headerAvatar.innerHTML = avatarContent;
+        headerAvatar.style.cursor = 'default';
+        headerAvatar.onclick = null;
+        
+        // Удаляем кнопку редактирования для личных чатов
+        const editBtn = qs('#edit-group-avatar-btn');
+        if (editBtn) editBtn.remove();
     }
 }
 
