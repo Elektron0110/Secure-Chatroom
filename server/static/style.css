@@ -285,6 +285,7 @@ a {
   cursor: pointer;
   overflow: hidden;
   flex-shrink: 0;
+  border: groove;
 }
 
 .sidebar-avatar img {
@@ -1081,6 +1082,8 @@ a {
   font-weight: 700;
   color: #fff;
   overflow: hidden;
+  border: groove;
+  border-width: 6px;
 }
 
 .profile-avatar img {
@@ -1098,6 +1101,9 @@ a {
   justify-content: center;
   opacity: 0;
   transition: opacity .18s;
+  width: 96px;
+  height: 96px;
+  display: flex;
 }
 
 .profile-avatar-container:hover .profile-avatar-edit {
