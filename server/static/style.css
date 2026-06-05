@@ -389,6 +389,7 @@ a {
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
+  border: groove;
 }
 
 .chat-avatar img {
@@ -567,6 +568,18 @@ a {
   gap: 3px;
 }
 
+.date-separator {
+  align-self: anchor-center;
+  background: rgb(255 255 255 / 50%);
+  border-radius: 50px;
+  padding-inline: 10px;
+}
+
+.msg-content {
+  min-width: 90px;
+  margin: 1px;
+}
+
 .msg-date-sep {
   text-align: center;
   margin: 8px 0;
@@ -584,16 +597,20 @@ a {
   flex-direction: column;
   max-width: 65%;
   position: relative;
+  background: rgb(255 255 255 / 50%);
+  border-radius: 15px;
 }
 
 .msg-wrap.sent {
   align-self: flex-end;
   align-items: flex-end;
+  padding: 10px 3px 5px 8px;
 }
 
 .msg-wrap.received {
   align-self: flex-start;
   align-items: flex-start;
+  padding: 10px 8px 5px 3px;
 }
 
 .msg-sender-name {
