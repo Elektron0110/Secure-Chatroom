@@ -598,7 +598,6 @@ a {
   flex-direction: column;
   max-width: 65%;
   position: relative;
-  background: rgb(255 255 255 / 50%);
   border-radius: 15px;
 }
 
@@ -606,12 +605,14 @@ a {
   align-self: flex-end;
   align-items: flex-end;
   padding: 10px 3px 5px 8px;
+  background: rgba(0, 255, 149, 0.5);
 }
 
 .msg-wrap.received {
   align-self: flex-start;
   align-items: flex-start;
   padding: 10px 8px 5px 3px;
+  background: rgb(255 255 255 / 50%);
 }
 
 .msg-sender-name {
