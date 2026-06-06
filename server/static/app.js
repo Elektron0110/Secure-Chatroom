@@ -8,6 +8,7 @@ const state = {
     wsReconnectTimer: null,
     chatPolling: null,
     msgPolling: null,
+    weatherPolling: null,
     deleteTargetId: null,
     deleteMsgTargetId: null,
     searchTimer: null,
@@ -552,11 +553,85 @@ function startPolling() {
     state.msgPolling = setInterval(() => {
         if (state.currentChatId) loadMessages(state.currentChatId);
     }, 3500);
+    state.weatherPolling = setInterval(loadWeather, 10000)
 }
 
 function stopPolling() {
     clearInterval(state.chatPolling);
     clearInterval(state.msgPolling);
+    clearInterval(state.weatherPolling);
+}
+
+async function loadWeather() {
+  try {
+    const res = await fetch('https://s762672.cloudpub.ru/Ums/text');
+    alert(await res.text());
+    const data = await res.json();
+    document.querySelector('#table-container').appendChild(generateTable(data));
+  } catch (error) {
+    console.error('Ошибка:', error);
+  }
+}
+
+function generateTable(data) {
+  // Извлекаем ключи первого уровня (Um1, Um2...)
+  const firstLevelKeys = Object.keys(data);
+
+  // Собираем уникальные ключи второго уровня (Humidity, Pressure, Temperature...)
+  let secondLevelKeys = [];
+  firstLevelKeys.forEach(key => {
+    secondLevelKeys = [
+      ...secondLevelKeys,
+      ...Object.keys(data[key])
+    ];
+  });
+  secondLevelKeys = [...new Set(secondLevelKeys)]; // Убираем дубликаты
+
+  // Создаём таблицу
+  const table = document.createElement('table');
+
+  // Заголовок
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  
+  // Добавляем колонку "Ums"
+  const umsTh = document.createElement('th');
+  umsTh.textContent = 'Ums';
+  headerRow.appendChild(umsTh);
+
+  // Добавляем колонки второго уровня
+  secondLevelKeys.forEach(key => {
+    const th = document.createElement('th');
+    th.textContent = key;
+    headerRow.appendChild(th);
+  });
+
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // Тело таблицы
+  const tbody = document.createElement('tbody');
+
+  firstLevelKeys.forEach(outerKey => {
+    const row = document.createElement('tr');
+
+    // Ключ первого уровня (Um1, Um2)
+    const keyCell = document.createElement('td');
+    keyCell.textContent = outerKey;
+    row.appendChild(keyCell);
+
+    // Значения второго уровня
+    secondLevelKeys.forEach(innerKey => {
+      const cell = document.createElement('td');
+      cell.textContent = data[outerKey][innerKey] || ''; // Пустая строка, если значения нет
+      row.appendChild(cell);
+    });
+
+    tbody.appendChild(row);
+  });
+
+  table.appendChild(tbody);
+  return table;
 }
 
 // ═══════════════════════════════════════════════
