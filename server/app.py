@@ -16,6 +16,7 @@ from flask import (
     make_response,
     render_template,
     send_from_directory,
+    Response,
 )
 from flask_sock import Sock
 from sqlalchemy import (
@@ -303,7 +304,7 @@ def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html")
+    return render_template("index.html", name='Alexis')
 
 @app.route("/status", methods=["GET"])
 def status():

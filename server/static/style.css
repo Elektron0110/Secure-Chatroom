@@ -17,6 +17,7 @@
   --radius: 10px;
   --shadow: 0 1px 3px rgba(0, 0, 0, .12);
   --transition: .18s ease;
+  --border-color: deepskyblue;
 }
 
 [data-theme="dark"] {
@@ -286,6 +287,7 @@ a {
   overflow: hidden;
   flex-shrink: 0;
   border: groove;
+  border-color: var(--border-color);
 }
 
 .sidebar-avatar img {
@@ -406,6 +408,7 @@ th {
   overflow: hidden;
   position: relative;
   border: groove;
+  border-color: var(--border-color);
 }
 
 .chat-avatar img {
@@ -1099,7 +1102,8 @@ th {
   color: #fff;
   overflow: hidden;
   border: groove;
-  border-width: 6px;
+  border-width: 4px;
+  border-color: var(--border-color);
 }
 
 .profile-avatar img {
