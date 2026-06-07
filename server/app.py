@@ -246,9 +246,20 @@ def setup_cors():
 
     @app.after_request
     def add_cors_headers(response):
-        response.headers["Access-Control-Allow-Origin"] = "https://s762672.cloudpub.ru/"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        origin = request.headers.get("Origin", "")
+        is_local = origin.startswith("http://localhost:") or origin.startswith(
+            "http://127.0.0.1:"
+        )
+        if origin and (origin in origins or is_local):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = (
+                "GET, POST, PUT, DELETE, OPTIONS"
+            )
+            response.headers["Access-Control-Allow-Headers"] = (
+                "Content-Type, Authorization"
+            )
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+
         logging.log(
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] {request.headers.get("x-real-ip")} "{request.method} {request.path}" {response.status[:3]}'
         )
@@ -258,9 +269,19 @@ def setup_cors():
     def handle_options():
         if request.method == "OPTIONS":
             resp = make_response()
-            resp.headers["Access-Control-Allow-Origin"] = "https://s762672.cloudpub.ru/"
-            resp.headers["Access-Control-Allow-Methods"] = "*"
-            resp.headers["Access-Control-Allow-Headers"] = "*"
+            origin = request.headers.get("Origin", "")
+            is_local = origin.startswith("http://localhost:") or origin.startswith(
+                "http://127.0.0.1:"
+            )
+            if origin and (origin in origins or is_local):
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Access-Control-Allow-Methods"] = (
+                    "GET, POST, PUT, DELETE, OPTIONS"
+                )
+                resp.headers["Access-Control-Allow-Headers"] = (
+                    "Content-Type, Authorization"
+                )
+                resp.headers["Access-Control-Allow-Credentials"] = "true"
             return resp
 
 # ─── WebSocket broadcast ──────────────────────────────────────────────────────
