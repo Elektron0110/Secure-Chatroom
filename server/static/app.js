@@ -564,7 +564,7 @@ function stopPolling() {
 
 async function loadWeather() {
   try {
-    const res = await fetch('https://s762672.cloudpub.ru/Ums/text');
+    const res = await fetch('/api/weather');
     alert(await res.text());
     const data = await res.json();
     document.querySelector('#table-container').appendChild(generateTable(data));

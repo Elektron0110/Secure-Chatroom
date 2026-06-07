@@ -854,6 +854,12 @@ def search_users():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+@app.route('/api/weather')
+def sr():
+	import json
+	data: dict[str, dict[str, str]] = json.loads(open('C:/Users/Alex/Desktop/JetBr/Python/WebPython/Trird/Site/data', 'r').read())
+	return jsonify(data)
+
 # ─── WebSocket ────────────────────────────────────────────────────────────────
 
 @sock.route("/ws")
