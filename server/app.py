@@ -303,7 +303,7 @@ def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", name='Alexis')
+    return render_template("index.html", name='Alex')
 
 
 @app.route("/status", methods=["GET"])
