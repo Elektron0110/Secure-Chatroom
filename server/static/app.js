@@ -565,9 +565,9 @@ function stopPolling() {
 async function loadWeather() {
   try {
     const res = await fetch('/api/weather');
-    alert(await res.text());
+    // alert(await res.text());
     const data = await res.json();
-    document.querySelector('#table-container').appendChild(generateTable(data));
+    document.querySelector('#table-container').innerHTML = generateTable(data).outerHTML;
   } catch (error) {
     console.error('Ошибка:', error);
   }
