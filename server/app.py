@@ -9,29 +9,11 @@ import datetime
 from functools import wraps
 from my_lib import Log
 
-from flask import (
-    Flask,
-    request,
-    jsonify,
-    make_response,
-    render_template,
-    send_from_directory,
-    Response,
-)
+from flask import (Flask, request, jsonify, make_response, render_template, 
+                   send_from_directory, Response,)
 from flask_sock import Sock
-from sqlalchemy import (
-    create_engine,
-    Column,
-    String,
-    Boolean,
-    DateTime,
-    Text,
-    ForeignKey,
-    func,
-    Index,
-    event,
-    text,
-)
+from sqlalchemy import (create_engine, Column, String, Boolean, DateTime, Text, 
+                        ForeignKey, func, Index, event, text,)
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.engine import Engine
 
@@ -49,7 +31,7 @@ sock = Sock(app)
 sessions = {}
 ws_clients = {}
 
-# ─── База данных (SQLite + SQLAlchemy) ────────────────────────────────────────
+# ─── База данных (SQLite + SQLAlchemy) ──────────────────────────────────
 
 DB_PATH = os.path.join(BASE_DIR, "messenger.db")
 engine = create_engine(
@@ -59,6 +41,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
+
 @event.listens_for(Engine, "connect")
 def enable_foreign_keys(dbapi_conn, _):
     if isinstance(dbapi_conn, sqlite3.Connection):
@@ -66,7 +49,8 @@ def enable_foreign_keys(dbapi_conn, _):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-# ─── Модели ───────────────────────────────────────────────────────────────────
+# ─── Модели ─────────────────────────────────────────────────────────────
+
 
 class User(Base):
     __tablename__ = "users"
@@ -79,6 +63,7 @@ class User(Base):
     is_online = Column(Boolean, default=False)
     last_seen = Column(DateTime, default=datetime.datetime.now())
     created_at = Column(DateTime, default=datetime.datetime.now())
+
 
 class Chat(Base):
     __tablename__ = "chats"
@@ -97,6 +82,7 @@ class Chat(Base):
         "Message", back_populates="chat", cascade="all, delete-orphan"
     )
 
+
 class ChatParticipant(Base):
     __tablename__ = "chat_participants"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -108,6 +94,7 @@ class ChatParticipant(Base):
 
     chat = relationship("Chat", back_populates="participants")
     user = relationship("User")
+
 
 class Message(Base):
     __tablename__ = "messages"
@@ -125,10 +112,12 @@ class Message(Base):
     chat = relationship("Chat", back_populates="messages")
     sender = relationship("User")
 
+
 Index("ix_cp_chat_id", ChatParticipant.chat_id)
 Index("ix_cp_user_id", ChatParticipant.user_id)
 Index("ix_msg_chat_id", Message.chat_id)
 Index("ix_msg_sender_id", Message.sender_id)
+
 
 def init_db():
     Base.metadata.create_all(engine)
@@ -147,16 +136,21 @@ def init_db():
         f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Database initialized: {DB_PATH}"'
     )
 
-# ─── Вспомогательные функции ──────────────────────────────────────────────────
+# ─── Вспомогательные функции ────────────────────────────────────────────
+
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+
 def generate_token():
     return secrets.token_hex(32)
 
+
 def dt_iso(dt):
-    return f'{dt.isoformat()}+03:00' if isinstance(dt, datetime.datetime) else dt
+    return f'{dt.isoformat()}+03:00' if isinstance(dt,
+                                                   datetime.datetime) else dt
+
 
 def user_dict(u):
     return {
@@ -166,6 +160,7 @@ def user_dict(u):
         "avatarUrl": u.avatar_url,
         "isOnline": u.is_online,
     }
+
 
 def message_dict(m):
     return {
@@ -178,6 +173,7 @@ def message_dict(m):
         "createdAt": dt_iso(m.created_at),
         "sender": user_dict(m.sender),
     }
+
 
 def chat_dict(chat, current_user_id, db):
     participants = [user_dict(cp.user) for cp in chat.participants]
@@ -213,7 +209,8 @@ def chat_dict(chat, current_user_id, db):
         "creatorId": chat.creator_id,
     }
 
-# ─── Auth декоратор ───────────────────────────────────────────────────────────
+# ─── Auth декоратор ─────────────────────────────────────────────────────
+
 
 def auth_required(f):
     @wraps(f)
@@ -232,7 +229,8 @@ def auth_required(f):
 
     return decorated
 
-# ─── CORS ─────────────────────────────────────────────────────────────────────
+# ─── CORS ───────────────────────────────────────────────────────────────
+
 
 def setup_cors():
     origins = set()
@@ -270,9 +268,8 @@ def setup_cors():
         if request.method == "OPTIONS":
             resp = make_response()
             origin = request.headers.get("Origin", "")
-            is_local = origin.startswith("http://localhost:") or origin.startswith(
-                "http://127.0.0.1:"
-            )
+            is_local = origin.startswith(
+                "http://localhost:") or origin.startswith("http://127.0.0.1:")
             if origin and (origin in origins or is_local):
                 resp.headers["Access-Control-Allow-Origin"] = origin
                 resp.headers["Access-Control-Allow-Methods"] = (
@@ -284,7 +281,8 @@ def setup_cors():
                 resp.headers["Access-Control-Allow-Credentials"] = "true"
             return resp
 
-# ─── WebSocket broadcast ──────────────────────────────────────────────────────
+# ─── WebSocket broadcast ────────────────────────────────────────────────
+
 
 def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
     payload = json.dumps(
@@ -300,15 +298,18 @@ def broadcast_to_chat(chat_id, message_data, exclude_user_id=None):
     for uid in disconnected:
         ws_clients.pop(uid, None)
 
-# ─── Маршруты ─────────────────────────────────────────────────────────────────
+# ─── Маршруты ───────────────────────────────────────────────────────────
+
 
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", name='Alexis')
 
+
 @app.route("/status", methods=["GET"])
 def status():
     return jsonify({"status": "ok"})
+
 
 @app.route("/api/auth/register", methods=["POST"])
 def register():
@@ -320,13 +321,16 @@ def register():
         recovery_code = str(data.get("recoveryCode", "")).strip()
 
         if len(username) < 3:
-            return jsonify({"error": "Username must be at least 3 characters"}), 400
+            return jsonify(
+                {"error": "Username must be at least 3 characters"}), 400
         if len(password) < 6:
-            return jsonify({"error": "Password must be at least 6 characters"}), 400
+            return jsonify(
+                {"error": "Password must be at least 6 characters"}), 400
         if not display_name:
             return jsonify({"error": "Display name is required"}), 400
         if not recovery_code.isdigit() or len(recovery_code) != 8:
-            return jsonify({"error": "Recovery code must be exactly 8 digits"}), 400
+            return jsonify(
+                {"error": "Recovery code must be exactly 8 digits"}), 400
 
         db = SessionLocal()
         try:
@@ -368,6 +372,7 @@ def register():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/auth/reset-password", methods=["POST"])
 def reset_password():
     try:
@@ -379,9 +384,11 @@ def reset_password():
         if not username:
             return jsonify({"error": "Username is required"}), 400
         if not recovery_code.isdigit() or len(recovery_code) != 8:
-            return jsonify({"error": "Recovery code must be exactly 8 digits"}), 400
+            return jsonify(
+                {"error": "Recovery code must be exactly 8 digits"}), 400
         if len(new_password) < 6:
-            return jsonify({"error": "New password must be at least 6 characters"}), 400
+            return jsonify(
+                {"error": "New password must be at least 6 characters"}), 400
 
         db = SessionLocal()
         try:
@@ -405,6 +412,7 @@ def reset_password():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     try:
@@ -413,9 +421,11 @@ def login():
         password = data.get("password", "")
 
         if len(username) < 3:
-            return jsonify({"error": "Username must be at least 3 characters"}), 400
+            return jsonify(
+                {"error": "Username must be at least 3 characters"}), 400
         if len(password) < 6:
-            return jsonify({"error": "Password must be at least 6 characters"}), 400
+            return jsonify(
+                {"error": "Password must be at least 6 characters"}), 400
 
         db = SessionLocal()
         try:
@@ -453,6 +463,7 @@ def login():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/auth/logout", methods=["POST"])
 @auth_required
 def logout():
@@ -471,6 +482,7 @@ def logout():
     resp.delete_cookie("token")
     return resp
 
+
 @app.route("/api/auth/me", methods=["GET"])
 @auth_required
 def get_me():
@@ -488,6 +500,7 @@ def get_me():
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get me error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
+
 
 @app.route("/api/chats", methods=["GET"])
 @auth_required
@@ -520,6 +533,7 @@ def get_chats():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/chats", methods=["POST"])
 @auth_required
 def create_chat():
@@ -531,7 +545,8 @@ def create_chat():
         is_group = data.get("isGroup", False)
 
         if not participant_ids or not isinstance(participant_ids, list):
-            return jsonify({"error": "At least one participant is required"}), 400
+            return jsonify(
+                {"error": "At least one participant is required"}), 400
 
         all_ids = list(set([user_id] + participant_ids))
 
@@ -559,6 +574,7 @@ def create_chat():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/chats/<chat_id>", methods=["DELETE"])
 @auth_required
 def delete_chat(chat_id):
@@ -585,6 +601,7 @@ def delete_chat(chat_id):
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/chats/<chat_id>/messages", methods=["GET"])
 @auth_required
 def get_messages(chat_id):
@@ -607,6 +624,7 @@ def get_messages(chat_id):
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Get messages error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
+
 
 @app.route("/api/chats/<chat_id>/messages", methods=["POST"])
 @auth_required
@@ -650,6 +668,7 @@ def create_message(chat_id):
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/chats/<chat_id>/read", methods=["POST"])
 @auth_required
 def mark_read(chat_id):
@@ -670,6 +689,7 @@ def mark_read(chat_id):
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/auth/profile", methods=["PATCH"])
 @auth_required
 def update_profile():
@@ -689,7 +709,8 @@ def update_profile():
             if len(new_username) < 3:
                 return jsonify({"error": "Минимум 3 символа"}), 400
             if not re.match(r"^[a-zA-Z0-9_]+$", new_username):
-                return jsonify({"error": "Только буквы, цифры и подчёркивание"}), 400
+                return jsonify(
+                    {"error": "Только буквы, цифры и подчёркивание"}), 400
 
         db = SessionLocal()
         try:
@@ -698,7 +719,8 @@ def update_profile():
                 return jsonify({"error": "User not found"}), 404
             if new_username is not None and new_username != user.username:
                 if db.query(User).filter_by(username=new_username).first():
-                    return jsonify({"error": "Имя пользователя уже занято"}), 409
+                    return jsonify(
+                        {"error": "Имя пользователя уже занято"}), 409
                 user.username = new_username
             if new_display_name is not None:
                 user.display_name = new_display_name
@@ -711,6 +733,7 @@ def update_profile():
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Update profile error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
+
 
 @app.route("/api/auth/avatar", methods=["POST"])
 @auth_required
@@ -752,6 +775,7 @@ def upload_avatar():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/chats/<chat_id>/avatar", methods=["POST"])
 @auth_required
 def upload_chat_avatar(chat_id):
@@ -763,25 +787,27 @@ def upload_chat_avatar(chat_id):
             chat = db.query(Chat).filter_by(id=chat_id).first()
             if not chat:
                 return jsonify({"error": "Chat not found"}), 404
-            
+
             # Проверка: только создатель может менять аватар группы
             if chat.creator_id != user_id:
-                return jsonify({"error": "Access denied. Only chat creator can change avatar"}), 403
-            
+                return jsonify(
+                    {"error": "Access denied. Only chat creator can change avatar"}), 403
+
             if not chat.is_group:
-                return jsonify({"error": "Only group chats can have custom avatars"}), 400
-            
+                return jsonify(
+                    {"error": "Only group chats can have custom avatars"}), 400
+
             if "avatar" not in request.files:
                 return jsonify({"error": "No file provided"}), 400
-            
+
             file = request.files["avatar"]
             if not file or not file.filename:
                 return jsonify({"error": "Invalid file"}), 400
-            
+
             content_type = file.content_type or ""
             if not content_type.startswith("image/"):
                 return jsonify({"error": "File must be an image"}), 400
-            
+
             ext = "jpg"
             if "png" in content_type:
                 ext = "png"
@@ -789,16 +815,16 @@ def upload_chat_avatar(chat_id):
                 ext = "gif"
             elif "webp" in content_type:
                 ext = "webp"
-            
+
             filename = f"chat_{chat_id}.{ext}"
             filepath = os.path.join(AVATARS_DIR, filename)
             file.save(filepath)
             avatar_url = f"/static/avatars/{filename}"
-            
+
             chat.avatar_url = avatar_url
             chat.updated_at = datetime.datetime.now()
             db.commit()
-            
+
             return jsonify({"avatarUrl": avatar_url, "chatId": chat_id})
         finally:
             db.close()
@@ -807,6 +833,7 @@ def upload_chat_avatar(chat_id):
             f'[{datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")}] "Chat avatar upload error: {e}"'
         )
         return jsonify({"error": "Internal server error"}), 500
+
 
 @app.route("/api/messages/<msg_id>", methods=["DELETE"])
 @auth_required
@@ -847,6 +874,7 @@ def delete_message(msg_id):
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route("/api/users/search", methods=["GET"])
 @auth_required
 def search_users():
@@ -875,13 +903,15 @@ def search_users():
         )
         return jsonify({"error": "Internal server error"}), 500
 
+
 @app.route('/api/weather')
 def sr():
 	import json
 	data: dict[str, dict[str, str]] = json.loads(open('C:/Users/Alex/Desktop/JetBr/Python/WebPython/Trird/Site/data', 'r').read())
 	return jsonify(data)
 
-# ─── WebSocket ────────────────────────────────────────────────────────────────
+# ─── WebSocket ──────────────────────────────────────────────────────────
+
 
 @sock.route("/ws")
 def websocket_handler(ws):
@@ -927,7 +957,8 @@ def websocket_handler(ws):
         finally:
             db.close()
 
-# ─── Инициализация ────────────────────────────────────────────────────────────
+# ─── Инициализация ──────────────────────────────────────────────────────
+
 
 setup_cors()
 init_db()
