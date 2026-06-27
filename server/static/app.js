@@ -596,7 +596,7 @@ function generateTable(data) {
   
   // Добавляем колонку "Ums"
   const umsTh = document.createElement('th');
-  umsTh.textContent = 'Ums';
+  umsTh.textContent = 'UMs';
   headerRow.appendChild(umsTh);
 
   // Добавляем колонки второго уровня
@@ -623,7 +623,9 @@ function generateTable(data) {
     // Значения второго уровня
     secondLevelKeys.forEach(innerKey => {
       const cell = document.createElement('td');
-      cell.textContent = data[outerKey][innerKey] || ''; // Пустая строка, если значения нет
+      cell.textContent = innerKey.search("Press") != -1
+        ? (String(data[outerKey][innerKey]*0.0075).slice(0, 6) || '')
+        : (data[outerKey][innerKey] || ''); // Пустая строка, если значения нет
       row.appendChild(cell);
     });
 
