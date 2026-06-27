@@ -549,11 +549,11 @@ async function markRead(chatId) {
 // POLLING
 // ═══════════════════════════════════════════════
 function startPolling() {
-    state.chatPolling = setInterval(loadChats, 6000);
+    state.chatPolling = setInterval(loadChats, 10000);
     state.msgPolling = setInterval(() => {
         if (state.currentChatId) loadMessages(state.currentChatId);
-    }, 3500);
-    state.weatherPolling = setInterval(loadWeather, 10000)
+    }, 5000);
+    state.weatherPolling = setInterval(loadWeather, 30000)
 }
 
 function stopPolling() {
