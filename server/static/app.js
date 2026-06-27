@@ -725,12 +725,21 @@ function renderMessages() {
         const tick = isSent ? `<span class="msg-tick">${msg.isRead ? '✓✓' : '✓'}</span>` : '';
         const deleteBtn = isSent
             ? `<button class="msg-delete-btn" data-msg-id="${msg.id}" title="Удалить">×</button>` : '';
+        let messageText;
+        if (msg.content.search("https://") != -1) {
+            const url = msg.content.substring(msg.content.search("https://"));
+            const linkPart = `<a href="${url}" target="_blank" style="color: var(--sidebar-header)">${escHtml(url)}</a>`;
+            const messPart = msg.content.substring(0, msg.content.search("https://"))
+            messageText = `${messPart} ${linkPart}`
+        } else {
+            messageText = escHtml(msg.content)
+        }
         return `${dateSep}
             <div class="msg-wrap ${isSent ? 'sent' : 'received'}" data-msg-id="${msg.id}">
                 ${deleteBtn}
                 ${senderName}
                 <div class="msg-content">
-                    <div class="msg-text">${escHtml(msg.content)}</div>
+                    <div class="msg-text">${messageText}</div>
                     <div class="msg-meta">
                         <span class="msg-time">${formatTimeShort(msg.createdAt)}</span>
                         ${tick}
