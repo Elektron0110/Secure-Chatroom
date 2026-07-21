@@ -581,6 +581,7 @@ th {
 #messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 16px 8px;
   display: flex;
   flex-direction: column;
@@ -621,14 +622,12 @@ th {
 
 .msg-wrap.sent {
   align-self: flex-end;
-  align-items: flex-end;
   padding: 10px 3px 5px 8px;
   background: rgba(0, 255, 149, 0.5);
 }
 
 .msg-wrap.received {
   align-self: flex-start;
-  align-items: flex-start;
   padding: 10px 8px 5px 3px;
   background: rgb(255 255 255 / 50%);
 }
@@ -1427,6 +1426,7 @@ th {
 
   .msg-wrap {
     max-width: 80%;
+    align-items: stretch;
   }
 
   .msg-delete-btn {
