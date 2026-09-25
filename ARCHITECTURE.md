@@ -132,6 +132,7 @@ class Chat(Base):
     avatar_url = Column(String)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
+    creator_id = Column(String)                    # ID создателя чата (для проверки прав)
 
     participants = relationship("ChatParticipant", back_populates="chat", cascade="all, delete-orphan")
     messages     = relationship("Message",         back_populates="chat", cascade="all, delete-orphan")
@@ -194,9 +195,15 @@ sock = Sock(app)
 
 sessions   = {}   # { token: user_id } — активные сессии (в памяти)
 ws_clients = {}   # { user_id: ws }   — WebSocket-подключения (в памяти)
+
+# Логирование
+logging = Log(r"server\Messager.log")   # логи запросов
+logger  = Log(r"server\Server.log")     # логи событий сервера
 ```
 
 Оба словаря живут в памяти процесса. При перезапуске сервера все сессии и WS-соединения теряются.
+
+**Логирование:** используется кастомный класс `Log` из модуля `my_lib.py`. Метод `log()` записывает timestamped-сообщения в файлы логов. Логируются HTTP-запросы, ошибки аутентификации, создание сообщений, удаление и другие события.
 
 ---
 
@@ -252,16 +259,19 @@ ws_clients = {}   # { user_id: ws }   — WebSocket-подключения (в �
 | POST | `/api/auth/login` | — | Вход |
 | POST | `/api/auth/logout` | ✓ | Выход |
 | GET | `/api/auth/me` | ✓ | Профиль текущего пользователя |
-| POST | `/api/auth/avatar` | ✓ | Загрузка аватара (multipart) |
+| POST | `/api/auth/avatar` | ✓ | Загрузка аватара пользователя (multipart) |
+| PATCH | `/api/auth/profile` | ✓ | Обновление профиля (displayName, username) |
 | POST | `/api/auth/reset-password` | — | Сброс пароля через код |
 | GET | `/api/chats` | ✓ | Список чатов пользователя |
 | POST | `/api/chats` | ✓ | Создать личный или групповой чат |
 | DELETE | `/api/chats/<id>` | ✓ | Удалить чат |
+| POST | `/api/chats/<id>/avatar` | ✓ | Загрузка аватара группового чата (только создатель) |
 | GET | `/api/chats/<id>/messages` | ✓ | Сообщения (последние 50) |
 | POST | `/api/chats/<id>/messages` | ✓ | Отправить сообщение |
 | POST | `/api/chats/<id>/read` | ✓ | Отметить как прочитанные |
 | DELETE | `/api/messages/<id>` | ✓ | Удалить сообщение (только отправитель) |
 | GET | `/api/users/search?q=...` | ✓ | Поиск пользователей |
+| GET | `/api/weather` | — | Данные о погоде (тестовый эндпоинт) |
 | WS | `/ws?token=<token>` | — | WebSocket |
 
 ---
@@ -271,6 +281,14 @@ ws_clients = {}   # { user_id: ws }   — WebSocket-подключения (в �
 **`POST /api/auth/avatar`**
 
 Принимает `multipart/form-data` с полем `avatar`. Сохраняет файл в `server/static/avatars/<user_id>.<ext>`, обновляет `user.avatar_url` в БД. Возвращает `{ avatarUrl, user }`.
+
+**`PATCH /api/auth/profile`**
+
+Обновляет `display_name` и/или `username` текущего пользователя. Проверяет уникальность username и минимальную длину. Возвращает `{ user: user_dict }`.
+
+**`POST /api/chats/<id>/avatar`**
+
+Загрузка аватара для группового чата. Доступно только создателю чата (`chat.creator_id == user_id`). Сохраняет файл как `chat_<chat_id>.<ext>`, обновляет `chat.avatar_url`. Возвращает `{ avatarUrl, chatId }`.
 
 **`DELETE /api/messages/<msg_id>`**
 
