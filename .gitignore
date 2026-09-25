@@ -1,48 +1,10 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+```markdown
+# Documentation and markdown files only - no build artifacts or dependencies detected
+# No .gitignore rules needed for this project
+```
 
-# dependencies
-node_modules/
+Wait, let me reconsider - the changes are only to documentation/markdown files (ARCHITECTURE.md, README.md, replit.md) with no build artifacts, dependencies, or temporary files. Following rule #6, I should output nothing.
 
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
+```markdown
 
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-app-example
-*.db
-__pycache__
-*.log
-avatars
-server/push.py
-
-# generated native folders
-/ios
-/android
+```
